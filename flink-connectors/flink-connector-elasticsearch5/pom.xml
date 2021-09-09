@@ -79,7 +79,7 @@ under the License.
 			<!-- Bump elasticsearch netty dependency -->
 			<groupId>io.netty</groupId>
 			<artifactId>netty-buffer</artifactId>
-			<version>4.1.46.Final</version>
+			<version>4.1.68.Final</version>
 		</dependency>
 
 		<dependency>
