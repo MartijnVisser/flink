@@ -159,7 +159,7 @@ under the License.
 			<!-- Bump arrow netty dependency -->
 			<groupId>io.netty</groupId>
 			<artifactId>netty-common</artifactId>
-			<version>4.1.46.Final</version>
+			<version>4.1.68.Final</version>
 		</dependency>
 
 		<!-- test dependencies -->
