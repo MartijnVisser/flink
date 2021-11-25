@@ -152,14 +152,14 @@ under the License.
 			<!-- Bump arrow netty dependency -->
 			<groupId>io.netty</groupId>
 			<artifactId>netty-buffer</artifactId>
-			<version>4.1.46.Final</version>
+			<version>4.1.70.Final</version>
 		</dependency>
 
 		<dependency>
 			<!-- Bump arrow netty dependency -->
 			<groupId>io.netty</groupId>
 			<artifactId>netty-common</artifactId>
-			<version>4.1.46.Final</version>
+			<version>4.1.70.Final</version>
 		</dependency>
 
 		<!-- test dependencies -->

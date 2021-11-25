@@ -152,7 +152,7 @@ under the License.
 			<!-- Bump hbase netty dependency -->
 			<groupId>io.netty</groupId>
 			<artifactId>netty-all</artifactId>
-			<version>4.1.46.Final</version>
+			<version>4.1.70.Final</version>
 		</dependency>
 
 		<dependency>
