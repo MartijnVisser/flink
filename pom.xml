@@ -790,7 +790,7 @@ under the License.
 					pin the version here to make this behavior explicit -->
 				<groupId>com.lmax</groupId>
 				<artifactId>disruptor</artifactId>
-				<version>3.4.2</version>
+				<version>3.4.4</version>
 			</dependency>
 			<dependency>
 				<!-- Bumped for security purposes and making it work with Jackson dependencies (2.10.1) -->
