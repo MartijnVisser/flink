@@ -32,22 +32,29 @@ class PbCodegenSimpleSerializer(val fd: Descriptors.FieldDescriptor, val `type`:
    */
   override def codegen(returnPbVarName: String, internalDataGetStr: String): String =
     `type`.getTypeRoot match {
-      case LogicalTypeRoot.INTEGER | LogicalTypeRoot.BIGINT | LogicalTypeRoot.BIGINT
-           | LogicalTypeRoot.FLOAT | LogicalTypeRoot.DOUBLE | LogicalTypeRoot.BOOLEAN =>
-        returnPbVarName + " = " + internalDataGetStr + ";"
+      case LogicalTypeRoot.INTEGER | LogicalTypeRoot.BIGINT =>
+        if (fd.getJavaType == JavaType.ENUM) {
+          val enumTypeStr = PbFormatUtils.getFullJavaName(fd.getEnumType)
+          s"""
+             |${returnPbVarName} = ${enumTypeStr}.forNumber((int)${internalDataGetStr});
+             |if(null == ${returnPbVarName}){
+             |  // choose the first enum element as default value if such value is invalid enum
+             |  ${returnPbVarName} = ${enumTypeStr}.values()[0];
+             |}
+             |""".stripMargin
+        } else {
+          s"${returnPbVarName} = ${internalDataGetStr};"
+        }
+      case LogicalTypeRoot.FLOAT | LogicalTypeRoot.DOUBLE | LogicalTypeRoot.BOOLEAN =>
+        s"${returnPbVarName} = ${internalDataGetStr};"
       case LogicalTypeRoot.VARCHAR | LogicalTypeRoot.CHAR =>
-        val sb = new StringBuilder
         val uid = PbCodegenVarId.getInstance.getAndIncrement
         val fromVar = "fromVar" + uid
-        sb.append(
-          s"""
-             |String ${fromVar};
-             |${fromVar} = ${internalDataGetStr}.toString();
-             |""".stripMargin)
-        val assignmentCode: String = if (fd.getJavaType == JavaType.ENUM) {
+        if (fd.getJavaType == JavaType.ENUM) {
           val enumValueDescVar = "enumValueDesc" + uid
           val enumTypeStr = PbFormatUtils.getFullJavaName(fd.getEnumType)
           s"""
+             |String ${fromVar} = ${internalDataGetStr}.toString();
              |Descriptors.EnumValueDescriptor ${enumValueDescVar} =
              |${enumTypeStr}.getDescriptor().findValueByName(${fromVar});
              |if(null == ${enumValueDescVar}){
@@ -59,10 +66,8 @@ class PbCodegenSimpleSerializer(val fd: Descriptors.FieldDescriptor, val `type`:
              |}
              |""".stripMargin
         } else {
-          s"${returnPbVarName} = ${fromVar};"
+          s"${returnPbVarName} = ${internalDataGetStr}.toString();"
         }
-        sb.append(assignmentCode)
-        sb.toString()
       case LogicalTypeRoot.VARBINARY | LogicalTypeRoot.BINARY =>
         returnPbVarName + " = ByteString.copyFrom(" + internalDataGetStr + ");"
       case _ =>
