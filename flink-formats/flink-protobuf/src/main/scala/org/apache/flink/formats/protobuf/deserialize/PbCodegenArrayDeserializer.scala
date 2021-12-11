@@ -24,20 +24,20 @@ import org.apache.flink.table.types.logical.LogicalType
 /** Deserializer to convert proto array type object to flink array type data. */
 class PbCodegenArrayDeserializer(val fd: Descriptors.FieldDescriptor,
                                  val elementType: LogicalType,
-                                 val formatConfig: PbFormatConfig) extends PbCodegenDeserializer {
+                                 val formatContext: PbFormatContext) extends PbCodegenDeserializer {
   @throws[PbCodegenException]
   override def codegen(returnInternalDataVarName: String, pbGetStr: String):String = {
     // The type of pbGetStr is a native List object,
     // it should be converted to ArrayData of flink internal type.
     val varUid = PbCodegenVarId.getInstance
     val uid = varUid.getAndIncrement
-    val protoTypeStr = PbCodegenUtils.getTypeStrFromProto(fd, false)
+    val protoTypeStr = PbCodegenUtils.getTypeStrFromProto(fd, false, formatContext.getOuterPrefix)
     val listPbVar = "list" + uid
     val newArrDataVar = "newArr" + uid
     val subReturnDataVar = "subReturnVar" + uid
     val iVar = "i" + uid
     val subPbObjVar = "subObj" + uid
-    val codegenDes = PbCodegenDeserializeFactory.getPbCodegenDes(fd, elementType, formatConfig)
+    val codegenDes = PbCodegenDeserializeFactory.getPbCodegenDes(fd, elementType, formatContext)
     s"""
       |List<${protoTypeStr}> ${listPbVar} = ${pbGetStr};
       |Object[] ${newArrDataVar} = new Object[${listPbVar}.size()];

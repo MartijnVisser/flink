@@ -72,7 +72,9 @@ object PbCodegenUtils {
    * @throws PbCodegenException
    */
   @throws[PbCodegenException]
-  def getTypeStrFromProto(fd: Descriptors.FieldDescriptor, isList: Boolean): String = {
+  def getTypeStrFromProto(fd: Descriptors.FieldDescriptor,
+                          isList: Boolean,
+                          outerPrefix: String): String = {
     var typeStr: String = null
     fd.getJavaType match {
       case JavaType.MESSAGE =>
@@ -80,12 +82,12 @@ object PbCodegenUtils {
           val keyFd = fd.getMessageType.findFieldByName(PbConstant.PB_MAP_KEY_NAME)
           val valueFd = fd.getMessageType.findFieldByName(PbConstant.PB_MAP_VALUE_NAME)
           // key and value cannot be repeated
-          val keyTypeStr = getTypeStrFromProto(keyFd, false)
-          val valueTypeStr = getTypeStrFromProto(valueFd, false)
+          val keyTypeStr = getTypeStrFromProto(keyFd, false, outerPrefix)
+          val valueTypeStr = getTypeStrFromProto(valueFd, false, outerPrefix)
           typeStr = "Map<" + keyTypeStr + "," + valueTypeStr + ">"
         }
         else { // simple message
-          typeStr = PbFormatUtils.getFullJavaName(fd.getMessageType)
+          typeStr = PbFormatUtils.getFullJavaName(fd.getMessageType, outerPrefix)
         }
       case JavaType.INT =>
         typeStr = "Integer"
@@ -94,7 +96,7 @@ object PbCodegenUtils {
       case JavaType.STRING =>
         typeStr = "String"
       case JavaType.ENUM =>
-        typeStr = PbFormatUtils.getFullJavaName(fd.getEnumType)
+        typeStr = PbFormatUtils.getFullJavaName(fd.getEnumType, outerPrefix)
       case JavaType.FLOAT =>
         typeStr = "Float"
       case JavaType.DOUBLE =>
@@ -150,28 +152,35 @@ object PbCodegenUtils {
    * @return The java code phrase which represents default value calculation.
    */
   @throws[PbCodegenException]
-  def getDefaultPbValue(fieldDescriptor: Descriptors.FieldDescriptor,
-                        nullLiteral: String) = fieldDescriptor.getJavaType match {
-    case JavaType.MESSAGE =>
-      PbFormatUtils.getFullJavaName(fieldDescriptor.getMessageType) + ".getDefaultInstance()"
-    case JavaType.INT =>
-      "0"
-    case JavaType.LONG =>
-      "0L"
-    case JavaType.STRING =>
-      "\"" + nullLiteral + "\""
-    case JavaType.ENUM =>
-      PbFormatUtils.getFullJavaName(fieldDescriptor.getEnumType) + ".values()[0]"
-    case JavaType.FLOAT =>
-      "0.0f"
-    case JavaType.DOUBLE =>
-      "0.0d"
-    case JavaType.BYTE_STRING =>
-      "ByteString.EMPTY"
-    case JavaType.BOOLEAN =>
-      "false"
-    case _ =>
-      throw new PbCodegenException("do not support field type: " + fieldDescriptor.getJavaType)
+  def getDefaultPbValue(
+                         fieldDescriptor: Descriptors.FieldDescriptor,
+                         pbFormatContext: PbFormatContext) = {
+    val outerPrefix =  pbFormatContext.getOuterPrefix
+    val nullStringLiterals = pbFormatContext.getPbFormatConfig.getWriteNullStringLiterals
+    fieldDescriptor.getJavaType
+    match {
+      case JavaType.MESSAGE =>
+        PbFormatUtils.getFullJavaName(fieldDescriptor.getMessageType, outerPrefix) +
+          ".getDefaultInstance()"
+      case JavaType.INT =>
+        "0"
+      case JavaType.LONG =>
+        "0L"
+      case JavaType.STRING =>
+        "\"" + nullStringLiterals + "\""
+      case JavaType.ENUM =>
+        PbFormatUtils.getFullJavaName(fieldDescriptor.getEnumType, outerPrefix) + ".values()[0]"
+      case JavaType.FLOAT =>
+        "0.0f"
+      case JavaType.DOUBLE =>
+        "0.0d"
+      case JavaType.BYTE_STRING =>
+        "ByteString.EMPTY"
+      case JavaType.BOOLEAN =>
+        "false"
+      case _ =>
+        throw new PbCodegenException("do not support field type: " + fieldDescriptor.getJavaType)
+    }
   }
 
   /**
@@ -194,17 +203,17 @@ object PbCodegenUtils {
                                              dataVar: String,
                                              elementPbFd: Descriptors.FieldDescriptor,
                                              elementDataType: LogicalType,
-                                             pbFormatConfig: PbFormatConfig) = {
-    val protoTypeStr = PbCodegenUtils.getTypeStrFromProto(elementPbFd, false)
+                                             pbFormatContext: PbFormatContext) = {
+    val protoTypeStr = PbCodegenUtils.getTypeStrFromProto(elementPbFd, false,
+      pbFormatContext.getOuterPrefix)
     val dataTypeStr = PbCodegenUtils.getTypeStrFromLogicType(elementDataType)
     val codegenSer = PbCodegenSerializeFactory.getPbCodegenSer(
-      elementPbFd, elementDataType, pbFormatConfig)
+      elementPbFd, elementDataType, pbFormatContext)
     s"""
        |${protoTypeStr} ${pbVar};
        |if(${arrDataVar}.isNullAt(${iVar})){
        |   ${pbVar} = ${
-      PbCodegenUtils.getDefaultPbValue(elementPbFd,
-        pbFormatConfig.getWriteNullStringLiterals)
+      PbCodegenUtils.getDefaultPbValue(elementPbFd, pbFormatContext)
     };
        |}else{
        |   ${dataTypeStr} ${dataVar};

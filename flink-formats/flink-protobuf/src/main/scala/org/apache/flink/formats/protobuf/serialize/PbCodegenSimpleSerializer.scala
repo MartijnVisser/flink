@@ -19,12 +19,12 @@ package org.apache.flink.formats.protobuf.serialize
 
 import com.google.protobuf.Descriptors
 import com.google.protobuf.Descriptors.FieldDescriptor.JavaType
-import org.apache.flink.formats.protobuf.{PbCodegenVarId, PbFormatConfig, PbFormatUtils}
+import org.apache.flink.formats.protobuf.{PbCodegenVarId, PbFormatContext, PbFormatUtils}
 import org.apache.flink.table.types.logical.{LogicalType, LogicalTypeRoot}
 
 /** Serializer to convert flink simple type data to proto simple type object. */
 class PbCodegenSimpleSerializer(val fd: Descriptors.FieldDescriptor, val `type`: LogicalType,
-                                val formatConfig: PbFormatConfig) extends PbCodegenSerializer {
+                                val formatContext: PbFormatContext) extends PbCodegenSerializer {
   /**
    * @param internalDataGetStr the real value of {@code internalDataGetStr} may be String, int,
    *                           long, double, float, boolean, byte[], enum value
@@ -34,7 +34,8 @@ class PbCodegenSimpleSerializer(val fd: Descriptors.FieldDescriptor, val `type`:
     `type`.getTypeRoot match {
       case LogicalTypeRoot.INTEGER | LogicalTypeRoot.BIGINT =>
         if (fd.getJavaType == JavaType.ENUM) {
-          val enumTypeStr = PbFormatUtils.getFullJavaName(fd.getEnumType)
+          val enumTypeStr = PbFormatUtils.getFullJavaName(fd.getEnumType,
+            formatContext.getOuterPrefix)
           s"""
              |${returnPbVarName} = ${enumTypeStr}.forNumber((int)${internalDataGetStr});
              |if(null == ${returnPbVarName}){
@@ -52,7 +53,8 @@ class PbCodegenSimpleSerializer(val fd: Descriptors.FieldDescriptor, val `type`:
         val fromVar = "fromVar" + uid
         if (fd.getJavaType == JavaType.ENUM) {
           val enumValueDescVar = "enumValueDesc" + uid
-          val enumTypeStr = PbFormatUtils.getFullJavaName(fd.getEnumType)
+          val enumTypeStr = PbFormatUtils.getFullJavaName(fd.getEnumType,
+            formatContext.getOuterPrefix)
           s"""
              |String ${fromVar} = ${internalDataGetStr}.toString();
              |Descriptors.EnumValueDescriptor ${enumValueDescVar} =

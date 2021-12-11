@@ -24,7 +24,7 @@ import org.apache.flink.table.types.logical.MapType
 /** Serializer to convert flink map type data to proto map type object. */
 class PbCodegenMapSerializer(val fd: Descriptors.FieldDescriptor,
                              val mapType: MapType,
-                             val formatConfig: PbFormatConfig) extends PbCodegenSerializer {
+                             val formatContext: PbFormatContext) extends PbCodegenSerializer {
   @throws[PbCodegenException]
   override def codegen(returnPbVarName: String, internalDataGetStr: String) = {
     val varUid = PbCodegenVarId.getInstance
@@ -33,8 +33,10 @@ class PbCodegenMapSerializer(val fd: Descriptors.FieldDescriptor,
     val valueType = mapType.getValueType
     val keyFd = fd.getMessageType.findFieldByName(PbConstant.PB_MAP_KEY_NAME)
     val valueFd = fd.getMessageType.findFieldByName(PbConstant.PB_MAP_VALUE_NAME)
-    val keyProtoTypeStr = PbCodegenUtils.getTypeStrFromProto(keyFd, false)
-    val valueProtoTypeStr = PbCodegenUtils.getTypeStrFromProto(valueFd, false)
+    val keyProtoTypeStr = PbCodegenUtils.getTypeStrFromProto(keyFd, false,
+      formatContext.getOuterPrefix)
+    val valueProtoTypeStr = PbCodegenUtils.getTypeStrFromProto(valueFd, false,
+      formatContext.getOuterPrefix)
     val keyArrDataVar = "keyArrData" + uid
     val valueArrDataVar = "valueArrData" + uid
     val iVar = "i" + uid
@@ -51,10 +53,10 @@ class PbCodegenMapSerializer(val fd: Descriptors.FieldDescriptor,
        |for(int ${iVar} = 0; ${iVar} < ${keyArrDataVar}.size(); ${iVar}++){
        |  // process key
        |  ${PbCodegenUtils.generateArrElementCodeWithDefaultValue(keyArrDataVar, iVar,
-            keyPbVar, keyDataVar, keyFd, keyType, formatConfig)}
+            keyPbVar, keyDataVar, keyFd, keyType, formatContext)}
        |  // process value
        |  ${PbCodegenUtils.generateArrElementCodeWithDefaultValue(valueArrDataVar, iVar,
-           valuePbVar, valueDataVar, valueFd, valueType, formatConfig)}
+           valuePbVar, valueDataVar, valueFd, valueType, formatContext)}
        |  ${pbMapVar}.put(${keyPbVar},${valuePbVar});
        |}
        |${returnPbVarName} = ${pbMapVar};

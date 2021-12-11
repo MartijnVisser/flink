@@ -40,12 +40,14 @@ class RowToProtoConverter @throws[PbCodegenException]
   final private var encodeMethod: Method = null
 
   try {
+    val outerPrefix = PbFormatUtils.getOuterProtoPrefix(formatConfig.getMessageClassName)
+    val formatContext = new PbFormatContext(outerPrefix, formatConfig)
     val descriptor = PbFormatUtils.getDescriptor(formatConfig.getMessageClassName)
     val uuid = UUID.randomUUID.toString.replaceAll("\\-", "")
     val generatedClassName = "GeneratedRowToProto_" + uuid
     val generatedPackageName = classOf[RowToProtoConverter].getPackage.getName
     val codegenSer = PbCodegenSerializeFactory.getPbCodegenTopRowSer(
-      descriptor, rowType, formatConfig)
+      descriptor, rowType, formatContext)
     val code =
       s"""
          |package ${generatedPackageName};

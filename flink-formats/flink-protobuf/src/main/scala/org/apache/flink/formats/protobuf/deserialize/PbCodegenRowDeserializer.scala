@@ -26,7 +26,7 @@ import scala.collection.JavaConverters._
 /** Deserializer to convert proto message type object to flink row type data. */
 class PbCodegenRowDeserializer(val descriptor: Descriptors.Descriptor,
                                val rowType: RowType,
-                               val formatConfig: PbFormatConfig) extends PbCodegenDeserializer {
+                               val formatContext: PbFormatContext) extends PbCodegenDeserializer {
   @throws[PbCodegenException]
   override def codegen(returnInternalDataVarName: String, pbGetStr: String): String = {
     // The type of pbGetStr is a native protobuf object,
@@ -36,7 +36,8 @@ class PbCodegenRowDeserializer(val descriptor: Descriptors.Descriptor,
     val pbMessageVar = "message" + uid
     val rowDataVar = "rowData" + uid
     val fieldSize = rowType.getFieldNames.size
-    val pbMessageTypeStr = PbFormatUtils.getFullJavaName(descriptor)
+    val pbMessageTypeStr = PbFormatUtils.getFullJavaName(descriptor,
+      formatContext.getOuterPrefix)
     val codeSb = new StringBuilder;
     codeSb.append(
       s"""
@@ -50,10 +51,10 @@ class PbCodegenRowDeserializer(val descriptor: Descriptors.Descriptor,
       val subType = rowType.getTypeAt(rowType.getFieldIndex(fieldName))
       val elementFd = descriptor.findFieldByName(fieldName)
       val strongCamelFieldName = PbFormatUtils.getStrongCamelCaseJsonName(fieldName)
-      val codegen = PbCodegenDeserializeFactory.getPbCodegenDes(elementFd, subType, formatConfig)
+      val codegen = PbCodegenDeserializeFactory.getPbCodegenDes(elementFd, subType, formatContext)
       val elementMessageGetStr = pbMessageElementGetStr(pbMessageVar, strongCamelFieldName,
         elementFd, PbFormatUtils.isArrayType(subType))
-      if (!formatConfig.isReadDefaultValues) {
+      if (!formatContext.getPbFormatConfig.isReadDefaultValues) {
         val isMessageNonEmptyCode = isMessageNonEmptyStr(
           pbMessageVar, strongCamelFieldName, PbFormatUtils.isRepeatedType(subType))
         codeSb.append(

@@ -28,22 +28,11 @@ message SimpleTestNoouterNomulti {
     optional double e = 5;
     optional string f = 6;
     optional bytes g = 7;
-    optional OuterInnerMessageTest h = 8;
-    optional OuterCorpus i = 9;
-}
+    optional InnerMessageTest h = 8;
 
-message OuterInnerMessageTest{
+    message InnerMessageTest{
        optional int32 a =1;
        optional int64 b =2;
-}
-
-enum OuterCorpus {
-        UNIVERSAL = 0;
-        WEB = 1;
-        IMAGES = 2;
-        LOCAL = 3;
-        NEWS = 4;
-        PRODUCTS = 5;
-        VIDEO = 7;
+    }
 }
 

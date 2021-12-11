@@ -24,26 +24,27 @@ import org.apache.flink.table.types.logical.MapType
 /** Deserializer to convert proto map type object to flink map type data. */
 class PbCodegenMapDeserializer(val fd: Descriptors.FieldDescriptor,
                                val mapType: MapType,
-                               val formatConfig: PbFormatConfig) extends PbCodegenDeserializer {
+                               val formatContext: PbFormatContext) extends PbCodegenDeserializer {
   @throws[PbCodegenException]
   override def codegen(returnInternalDataVarName: String, pbGetStr: String): String = {
     // The type of pbGetStr is a native Map object,
     // it should be converted to MapData of flink internal type
+    val outerPrefix = formatContext.getOuterPrefix
     val varUid = PbCodegenVarId.getInstance
     val uid = varUid.getAndIncrement
     val keyType = mapType.getKeyType
     val valueType = mapType.getValueType
     val keyFd = fd.getMessageType.findFieldByName(PbConstant.PB_MAP_KEY_NAME)
     val valueFd = fd.getMessageType.findFieldByName(PbConstant.PB_MAP_VALUE_NAME)
-    val pbKeyTypeStr = PbCodegenUtils.getTypeStrFromProto(keyFd, false)
-    val pbValueTypeStr = PbCodegenUtils.getTypeStrFromProto(valueFd, false)
+    val pbKeyTypeStr = PbCodegenUtils.getTypeStrFromProto(keyFd, false, outerPrefix)
+    val pbValueTypeStr = PbCodegenUtils.getTypeStrFromProto(valueFd, false, outerPrefix)
     val pbMapVar = "pbMap" + uid
     val pbMapEntryVar = "pbEntry" + uid
     val resultDataMapVar = "resultDataMap" + uid
     val keyDataVar = "keyDataVar" + uid
     val valueDataVar = "valueDataVar" + uid
-    val keyDes = PbCodegenDeserializeFactory.getPbCodegenDes(keyFd, keyType, formatConfig)
-    val valueDes = PbCodegenDeserializeFactory.getPbCodegenDes(valueFd, valueType, formatConfig)
+    val keyDes = PbCodegenDeserializeFactory.getPbCodegenDes(keyFd, keyType, formatContext)
+    val valueDes = PbCodegenDeserializeFactory.getPbCodegenDes(valueFd, valueType, formatContext)
     s"""
        | Map<${pbKeyTypeStr}, ${pbValueTypeStr}> ${pbMapVar} = ${pbGetStr};
        | Map ${resultDataMapVar} = new HashMap();

@@ -25,14 +25,15 @@ import scala.collection.JavaConverters._
 
 /** Serializer to convert flink row type data to proto row type object. */
 class PbCodegenRowSerializer(val descriptor: Descriptors.Descriptor, val rowType: RowType,
-                             val formatConfig: PbFormatConfig) extends PbCodegenSerializer {
+                             val formatContext: PbFormatContext) extends PbCodegenSerializer {
   @throws[PbCodegenException]
   override def codegen(returnPbVarName: String, internalDataGetStr: String) = {
     val varUid = PbCodegenVarId.getInstance
     val uid = varUid.getAndIncrement
     val sb = new StringBuilder
     val rowDataVar = "rowData" + uid
-    val pbMessageTypeStr = PbFormatUtils.getFullJavaName(descriptor)
+    val pbMessageTypeStr = PbFormatUtils.getFullJavaName(descriptor,
+      formatContext.getOuterPrefix)
     val messageBuilderVar = "messageBuilder" + uid
     sb.append(
       s"""
@@ -46,16 +47,17 @@ class PbCodegenRowSerializer(val descriptor: Descriptors.Descriptor, val rowType
       val subUid = varUid.getAndIncrement
       val elementPbVar = "elementPbVar" + subUid
       val elementPbTypeStr = if (elementFd.isMapField) {
-        PbCodegenUtils.getTypeStrFromProto(elementFd, false)
+        PbCodegenUtils.getTypeStrFromProto(elementFd, false, formatContext.getOuterPrefix)
       }
       else {
-        PbCodegenUtils.getTypeStrFromProto(elementFd, PbFormatUtils.isArrayType(subType))
+        PbCodegenUtils.getTypeStrFromProto(elementFd, PbFormatUtils.isArrayType(subType),
+          formatContext.getOuterPrefix)
       }
       val strongCamelFieldName = PbFormatUtils.getStrongCamelCaseJsonName(fieldName)
 
       val subRowGetCode = PbCodegenUtils.getContainerDataFieldGetterCodePhrase(
         rowDataVar, index + "", subType)
-      val codegen = PbCodegenSerializeFactory.getPbCodegenSer(elementFd, subType, formatConfig)
+      val codegen = PbCodegenSerializeFactory.getPbCodegenSer(elementFd, subType, formatContext)
       // Only set non-null element of flink row to proto object. The real value in proto
       // result depends on protobuf implementation.
       sb.append(

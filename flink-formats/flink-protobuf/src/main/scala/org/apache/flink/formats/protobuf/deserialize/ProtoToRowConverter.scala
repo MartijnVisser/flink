@@ -44,8 +44,10 @@ class ProtoToRowConverter @throws[PbCodegenException]
   final private var decodeMethod: Method = null
 
   try {
+    val outerPrefix = PbFormatUtils.getOuterProtoPrefix(formatConfig.getMessageClassName)
     val descriptor = PbFormatUtils.getDescriptor(formatConfig.getMessageClassName)
     val messageClass = Class.forName(formatConfig.getMessageClassName)
+    val fullMessageClassName = PbFormatUtils.getFullJavaName(descriptor, outerPrefix)
     if (descriptor.getFile.getSyntax == Syntax.PROTO3) { // pb3 always read default values
       formatConfig = new PbFormatConfig(
         formatConfig.getMessageClassName,
@@ -53,11 +55,12 @@ class ProtoToRowConverter @throws[PbCodegenException]
         true,
         formatConfig.getWriteNullStringLiterals)
     }
+    val pbFormatContext = new PbFormatContext(outerPrefix, formatConfig)
     val uuid = UUID.randomUUID.toString.replaceAll("\\-", "")
     val generatedClassName = "GeneratedProtoToRow_" + uuid
     val generatedPackageName = classOf[ProtoToRowConverter].getPackage.getName
     val codegenDes = PbCodegenDeserializeFactory.getPbCodegenTopRowDes(
-      descriptor, rowType, formatConfig)
+      descriptor, rowType, pbFormatContext)
     val code =
       s"""
          | package ${generatedPackageName};
@@ -74,7 +77,7 @@ class ProtoToRowConverter @throws[PbCodegenException]
          | import ${classOf[ByteString].getName};
          | public class ${generatedClassName}{
          |    public static RowData ${PbConstant.GENERATED_DECODE_METHOD}(
-         |      ${PbFormatUtils.getFullJavaName(descriptor)} message){
+         |      ${fullMessageClassName} message){
          |        RowData rowData=null;
          |        ${codegenDes.codegen("rowData", "message")}
          |        return rowData;

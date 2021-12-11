@@ -23,12 +23,12 @@ import org.apache.flink.table.types.logical.LogicalType
 
 /** Serializer to convert flink array type data to proto array type object. */
 class PbCodegenArraySerializer(val fd: Descriptors.FieldDescriptor, val elementType: LogicalType,
-                               val formatConfig: PbFormatConfig) extends PbCodegenSerializer {
+                               val formatContext: PbFormatContext) extends PbCodegenSerializer {
   @throws[PbCodegenException]
   override def codegen(returnPbVarName: String, internalDataGetStr: String): String = {
     val varUid = PbCodegenVarId.getInstance
     val uid = varUid.getAndIncrement
-    val protoTypeStr = PbCodegenUtils.getTypeStrFromProto(fd, false)
+    val protoTypeStr = PbCodegenUtils.getTypeStrFromProto(fd, false, formatContext.getOuterPrefix)
     val pbListVar = "pbList" + uid
     val arrayDataVar = "arrData" + uid
     val elementDataVar = "eleData" + uid
@@ -39,7 +39,7 @@ class PbCodegenArraySerializer(val fd: Descriptors.FieldDescriptor, val elementT
        |List<${protoTypeStr}> ${pbListVar} = new ArrayList();
        |for(int ${iVar} =0; ${iVar} < ${arrayDataVar}.size(); ${iVar}++){
          |${PbCodegenUtils.generateArrElementCodeWithDefaultValue(arrayDataVar, iVar,
-            elementPbVar, elementDataVar, fd, elementType, formatConfig)}
+            elementPbVar, elementDataVar, fd, elementType, formatContext)}
          |${pbListVar}.add(${elementPbVar});
        |}
        |${returnPbVarName} = ${pbListVar};
