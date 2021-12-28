@@ -117,7 +117,7 @@ under the License.
 		<dependency>
 			<groupId>io.confluent</groupId>
 			<artifactId>kafka-schema-registry-client</artifactId>
-			<version>5.5.2</version>
+			<version>5.5.7</version>
 			<scope>test</scope>
 			<exclusions>
 				<exclusion>
