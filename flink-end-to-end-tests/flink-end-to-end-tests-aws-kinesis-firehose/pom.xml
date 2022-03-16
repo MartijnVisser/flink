@@ -32,7 +32,7 @@
 	<artifactId>flink-end-to-end-tests-aws-kinesis-firehose</artifactId>
 	<name>Flink : E2E Tests : Kinesis Firehose SQL tests</name>
 	<properties>
-		<aws.sdk.version>2.17.52</aws.sdk.version>
+		<aws.sdk.version>2.17.149</aws.sdk.version>
 	</properties>
 	<packaging>jar</packaging>
 
