@@ -1,4 +1,3 @@
-#!/usr/bin/env bash
 ################################################################################
 #  Licensed to the Apache Software Foundation (ASF) under one
 #  or more contributor license agreements.  See the NOTICE file
@@ -16,23 +15,11 @@
 #  See the License for the specific language governing permissions and
 # limitations under the License.
 ################################################################################
-
-HUGO_REPO=https://github.com/gohugoio/hugo/releases/download/v0.80.0/hugo_extended_0.80.0_Linux-64bit.tar.gz
-HUGO_ARTIFACT=hugo_extended_0.80.0_Linux-64bit.tar.gz
-
-if ! curl --fail -OL $HUGO_REPO ; then 
-	echo "Failed to download Hugo binary"
-	exit 1
-fi
-
-tar -zxvf $HUGO_ARTIFACT
-
-git submodule update --init --recursive
-# generate docs into docs/target
-./hugo -v --source docs --destination target
-
-if [ $? -ne 0 ]; then
-	echo "Error building the docs"
-	exit 1
-fi
-
+"""
+A constant holding the maximum value a long can have, 2^63 – 1.
+"""
+MAX_LONG_VALUE = 0x7fffffffffffffff
+"""
+A constant holding the minimum value a long can have, -2^63
+"""
+MIN_LONG_VALUE = - MAX_LONG_VALUE - 1

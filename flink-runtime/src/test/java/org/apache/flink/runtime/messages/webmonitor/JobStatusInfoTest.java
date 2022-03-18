@@ -16,15 +16,20 @@
  * limitations under the License.
  */
 
-package org.apache.flink.table.runtime.operators.window;
+package org.apache.flink.runtime.messages.webmonitor;
 
-import org.hamcrest.Matcher;
-import org.hamcrest.Matchers;
+import org.apache.flink.api.common.JobStatus;
+import org.apache.flink.runtime.rest.messages.RestResponseMarshallingTestBase;
 
-/** Utilities that are useful for working with Window tests. */
-public interface WindowTestUtils {
+/** Tests for the {@link JobStatusInfo}. */
+public class JobStatusInfoTest extends RestResponseMarshallingTestBase<JobStatusInfo> {
+    @Override
+    protected Class<JobStatusInfo> getTestResponseClass() {
+        return JobStatusInfo.class;
+    }
 
-    static Matcher<TimeWindow> timeWindow(long start, long end) {
-        return Matchers.equalTo(new TimeWindow(start, end));
+    @Override
+    protected JobStatusInfo getTestResponseInstance() throws Exception {
+        return new JobStatusInfo(JobStatus.CREATED);
     }
 }
