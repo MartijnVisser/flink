@@ -20,7 +20,7 @@
   :main jepsen.flink.flink
   :aot [jepsen.flink.flink]
   :dependencies [;; jepsen 0.1.19 is not compatible with 1.10.1+
-                 [org.clojure/clojure "1.10.0"],
+                 [org.clojure/clojure "1.11.0"],
                  [cheshire "5.8.0"]
                  [clj-http "3.8.0"]
                  [jepsen "0.1.19"],
