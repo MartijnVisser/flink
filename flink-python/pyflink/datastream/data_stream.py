@@ -34,10 +34,10 @@ from pyflink.datastream.functions import (_get_python_env, FlatMapFunction, MapF
                                           InternalIterableProcessWindowFunction, CoProcessFunction,
                                           InternalSingleValueWindowFunction,
                                           InternalSingleValueProcessWindowFunction,
-                                          PassThroughWindowFunction)
+                                          PassThroughWindowFunction, AggregateFunction)
 from pyflink.datastream.slot_sharing_group import SlotSharingGroup
 from pyflink.datastream.state import ValueStateDescriptor, ValueState, ListStateDescriptor, \
-    StateDescriptor, ReducingStateDescriptor
+    StateDescriptor, ReducingStateDescriptor, AggregatingStateDescriptor
 from pyflink.datastream.utils import convert_to_python_obj
 from pyflink.datastream.window import (CountTumblingWindowAssigner, CountSlidingWindowAssigner,
                                        CountWindowSerializer, TimeWindowSerializer, Trigger,
@@ -1174,6 +1174,90 @@ class KeyedStream(DataStream):
         return self.process(FilterKeyedProcessFunctionAdapter(func), self._original_data_type_info)\
             .name("Filter")
 
+    def sum(self, position_to_sum: Union[int, str] = 0) -> 'DataStream':
+        """
+        Applies an aggregation that gives a rolling sum of the data stream at the given position
+        grouped by the given key. An independent aggregate is kept per key.
+
+        Example(Tuple data to sum):
+        ::
+
+            >>> ds = env.from_collection([('a', 1), ('a', 2), ('b', 1), ('b', 5)])
+            >>> ds.key_by(lambda x: x[0]).sum(1)
+
+        Example(Row data to sum):
+        ::
+
+            >>> ds = env.from_collection([('a', 1), ('a', 2), ('a', 3), ('b', 1), ('b', 2)],
+            ...                          type_info=Types.ROW([Types.STRING(), Types.INT()]))
+            >>> ds.key_by(lambda x: x[0]).sum(1)
+
+        Example(Row data with fields name to sum):
+        ::
+
+            >>> ds = env.from_collection(
+            ...     [('a', 1), ('a', 2), ('a', 3), ('b', 1), ('b', 2)],
+            ...     type_info=Types.ROW_NAMED(["key", "value"], [Types.STRING(), Types.INT()])
+            ... )
+            >>> ds.key_by(lambda x: x[0]).sum("value")
+
+        :param position_to_sum: The field position in the data points to sum, type can be int which
+                                indicates the index of the column to operate on or str which
+                                indicates the name of the column to operate on.
+        :return: The transformed DataStream.
+
+        .. versionadded:: 1.16.0
+        """
+        if not isinstance(position_to_sum, int) and not isinstance(position_to_sum, str):
+            raise TypeError("The field position must be of int or str type "
+                            "to locate the value to sum")
+
+        class SumReduceFunction(ReduceFunction):
+
+            def __init__(self, position_to_sum):
+                self._pos = position_to_sum
+                self._reduce_func = None
+
+            def reduce(self, value1, value2):
+                from numbers import Number
+
+                def init_reduce_func(value_to_check):
+                    if isinstance(value_to_check, tuple):
+                        def reduce_func(v1, v2):
+                            v1_list = list(v1)
+                            v1_list[self._pos] = v1[self._pos] + v2[self._pos]
+                            return tuple(v1_list)
+                        self._reduce_func = reduce_func
+                    elif isinstance(value_to_check, (list, Row)):
+                        def reduce_func(v1, v2):
+                            v1[self._pos] = v1[self._pos] + v2[self._pos]
+                            return v1
+                        self._reduce_func = reduce_func
+                    elif isinstance(value_to_check, Number):
+                        if self._pos != 0:
+                            raise TypeError(
+                                "The %s field selected on a basic type. A field expression on a "
+                                "basic type can only select the 0th field (which means selecting "
+                                "the entire basic type)." % self._pos)
+
+                        def reduce_func(v1, v2):
+                            return v1 + v2
+                        self._reduce_func = reduce_func
+                    else:
+                        raise TypeError("Sum operator only processes data of "
+                                        "Tuple, Row, List or Number type. "
+                                        "Actual data type: %s" % type(value_to_check))
+
+                if not isinstance(value2, Number) and not isinstance(value2[self._pos], Number):
+                    raise TypeError("The field to sum by must be of numeric type, actual type: %s"
+                                    % type(value2[self._pos]))
+
+                if not self._reduce_func:
+                    init_reduce_func(value2)
+                return self._reduce_func(value1, value2)
+
+        return self.reduce(SumReduceFunction(position_to_sum))
+
     def add_sink(self, sink_func: SinkFunction) -> 'DataStreamSink':
         return self._values().add_sink(sink_func)
 
@@ -1223,7 +1307,7 @@ class KeyedStream(DataStream):
         """
         return WindowedStream(self, window_assigner)
 
-    def count_window(self, size: int, slide=0):
+    def count_window(self, size: int, slide: int = 0):
         """
         Windows this KeyedStream into tumbling or sliding count windows.
 
@@ -1401,6 +1485,74 @@ class WindowedStream(object):
 
         return self._get_result_data_stream(internal_window_function,
                                             reducing_state_descriptor,
+                                            output_type)
+
+    def aggregate(self,
+                  aggregate_function: AggregateFunction,
+                  window_function: Union[WindowFunction, ProcessWindowFunction] = None,
+                  accumulator_type: TypeInformation = None,
+                  output_type: TypeInformation = None) -> DataStream:
+        """
+        Applies the given window function to each window. The window function is called for each
+        evaluation of the window for each key individually. The output of the window function is
+        interpreted as a regular non-windowed stream.
+
+        Arriving data is incrementally aggregated using the given aggregate function. This means
+        that the window function typically has only a single value to process when called.
+
+        Example:
+        ::
+
+            >>> class AverageAggregate(AggregateFunction):
+            ...     def create_accumulator(self) -> Tuple[int, int]:
+            ...         return 0, 0
+            ...
+            ...     def add(self, value: Tuple[str, int], accumulator: Tuple[int, int]) \\
+            ...             -> Tuple[int, int]:
+            ...         return accumulator[0] + value[1], accumulator[1] + 1
+            ...
+            ...     def get_result(self, accumulator: Tuple[int, int]) -> float:
+            ...         return accumulator[0] / accumulator[1]
+            ...
+            ...     def merge(self, a: Tuple[int, int], b: Tuple[int, int]) -> Tuple[int, int]:
+            ...         return a[0] + b[0], a[1] + b[1]
+            >>> ds.key_by(lambda x: x[1]) \\
+            ...     .window(TumblingEventTimeWindows.of(Time.seconds(5))) \\
+            ...     .aggregate(AverageAggregate(),
+            ...                accumulator_type=Types.TUPLE([Types.LONG(), Types.LONG()]),
+            ...                output_type=Types.DOUBLE())
+
+        :param aggregate_function: The aggregation function that is used for incremental
+                                   aggregation.
+        :param window_function: The window function.
+        :param accumulator_type: Type information for the internal accumulator type of the
+                                 aggregation function.
+        :param output_type: Type information for the result type of the window function.
+        :return: The data stream that is the result of applying the window function to the window.
+
+        .. versionadded:: 1.16.0
+        """
+        if window_function is None:
+            internal_window_function = InternalSingleValueWindowFunction(
+                PassThroughWindowFunction())  # type: InternalWindowFunction
+        elif isinstance(window_function, WindowFunction):
+            internal_window_function = InternalSingleValueWindowFunction(window_function)
+        elif isinstance(window_function, ProcessWindowFunction):
+            internal_window_function = InternalSingleValueProcessWindowFunction(window_function)
+        else:
+            raise TypeError("window_function should be a WindowFunction or ProcessWindowFunction")
+
+        if accumulator_type is None:
+            accumulator_type = Types.PICKLED_BYTE_ARRAY()
+        elif isinstance(accumulator_type, list):
+            accumulator_type = RowTypeInfo(accumulator_type)
+
+        aggregating_state_descriptor = AggregatingStateDescriptor(WINDOW_STATE_NAME,
+                                                                  aggregate_function,
+                                                                  accumulator_type)
+
+        return self._get_result_data_stream(internal_window_function,
+                                            aggregating_state_descriptor,
                                             output_type)
 
     def apply(self,

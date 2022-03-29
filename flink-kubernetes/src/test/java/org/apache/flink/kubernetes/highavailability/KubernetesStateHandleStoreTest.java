@@ -445,7 +445,7 @@ public class KubernetesStateHandleStoreTest extends KubernetesHighAvailabilityTe
                             store.addAndLock(key, state);
                             // Lost leadership
                             getLeaderCallback().notLeader();
-                            electionEventHandler.waitForRevokeLeader(TIMEOUT);
+                            electionEventHandler.waitForRevokeLeader();
                             getLeaderConfigMap()
                                     .getAnnotations()
                                     .remove(KubernetesLeaderElector.LEADER_ANNOTATION_KEY);
@@ -804,6 +804,33 @@ public class KubernetesStateHandleStoreTest extends KubernetesHighAvailabilityTe
     }
 
     @Test
+    public void testRemoveOfNonExistingState() throws Exception {
+        new Context() {
+            {
+                runTest(
+                        () -> {
+                            leaderCallbackGrantLeadership();
+
+                            final KubernetesStateHandleStore<
+                                            TestingLongStateHandleHelper.LongStateHandle>
+                                    store =
+                                            new KubernetesStateHandleStore<>(
+                                                    flinkKubeClient,
+                                                    LEADER_CONFIGMAP_NAME,
+                                                    longStateStorage,
+                                                    filter,
+                                                    LOCK_IDENTITY);
+                            assertThat(store.getAllAndLock().size(), is(0));
+                            assertThat(store.releaseAndTryRemove(key), is(true));
+                            assertThat(store.getAllAndLock().size(), is(0));
+
+                            assertThat(TestingLongStateHandleHelper.getGlobalDiscardCount(), is(0));
+                        });
+            }
+        };
+    }
+
+    @Test
     public void testRemoveFailedShouldNotDiscardState() throws Exception {
         new Context() {
             {
@@ -824,7 +851,7 @@ public class KubernetesStateHandleStoreTest extends KubernetesHighAvailabilityTe
                             store.addAndLock(key, state);
                             // Lost leadership
                             getLeaderCallback().notLeader();
-                            electionEventHandler.waitForRevokeLeader(TIMEOUT);
+                            electionEventHandler.waitForRevokeLeader();
                             getLeaderConfigMap()
                                     .getAnnotations()
                                     .remove(KubernetesLeaderElector.LEADER_ANNOTATION_KEY);

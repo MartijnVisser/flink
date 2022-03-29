@@ -32,7 +32,6 @@ import org.apache.flink.streaming.api.environment.{LocalStreamEnvironment, Strea
 import org.apache.flink.streaming.api.scala.{StreamExecutionEnvironment => ScalaStreamExecEnv}
 import org.apache.flink.streaming.api.{TimeCharacteristic, environment}
 import org.apache.flink.table.api._
-import org.apache.flink.table.api.bridge.internal.AbstractStreamTableEnvironmentImpl
 import org.apache.flink.table.api.bridge.java.{StreamTableEnvironment => JavaStreamTableEnv}
 import org.apache.flink.table.api.bridge.scala.{StreamTableEnvironment => ScalaStreamTableEnv}
 import org.apache.flink.table.api.config.ExecutionConfigOptions
@@ -105,15 +104,15 @@ abstract class TableTestBase {
   @Rule
   def name: TestName = testName
 
-  def streamTestUtil(conf: TableConfig = TableConfig.getDefault): StreamTableTestUtil =
-    StreamTableTestUtil(this, conf = conf)
+  def streamTestUtil(tableConfig: TableConfig = TableConfig.getDefault): StreamTableTestUtil =
+    StreamTableTestUtil(this, tableConfig = tableConfig)
 
   def scalaStreamTestUtil(): ScalaStreamTableTestUtil = ScalaStreamTableTestUtil(this)
 
   def javaStreamTestUtil(): JavaStreamTableTestUtil = JavaStreamTableTestUtil(this)
 
-  def batchTestUtil(conf: TableConfig = TableConfig.getDefault): BatchTableTestUtil =
-    BatchTableTestUtil(this, conf = conf)
+  def batchTestUtil(tableConfig: TableConfig = TableConfig.getDefault): BatchTableTestUtil =
+    BatchTableTestUtil(this, tableConfig = tableConfig)
 
   def scalaBatchTestUtil(): ScalaBatchTableTestUtil = ScalaBatchTableTestUtil(this)
 
@@ -1222,8 +1221,8 @@ abstract class JavaTableTestUtil(
 case class StreamTableTestUtil(
     test: TableTestBase,
     catalogManager: Option[CatalogManager] = None,
-    conf: TableConfig = TableConfig.getDefault)
-  extends TableTestUtil(test, isStreamingMode = true, catalogManager, conf) {
+    override val tableConfig: TableConfig = TableConfig.getDefault)
+  extends TableTestUtil(test, isStreamingMode = true, catalogManager, tableConfig) {
 
   /**
    * Register a table with specific row time field and offset.
@@ -1261,7 +1260,7 @@ case class StreamTableTestUtil(
   }
 
   def buildStreamProgram(firstProgramNameToRemove: String): Unit = {
-    val program = FlinkStreamProgram.buildProgram(tableEnv.getConfig.getConfiguration)
+    val program = FlinkStreamProgram.buildProgram(tableEnv.getConfig)
     var startRemove = false
     program.getProgramNames.foreach {
       name =>
@@ -1285,8 +1284,7 @@ case class StreamTableTestUtil(
   def getStreamProgram(): FlinkChainedProgram[StreamOptimizeContext] = {
     val tableConfig = tableEnv.getConfig
     val calciteConfig = TableConfigUtils.getCalciteConfig(tableConfig)
-    calciteConfig.getStreamProgram.getOrElse(FlinkStreamProgram.buildProgram(
-      tableConfig.getConfiguration))
+    calciteConfig.getStreamProgram.getOrElse(FlinkStreamProgram.buildProgram(tableConfig))
   }
 
   def enableMiniBatch(): Unit = {
@@ -1342,11 +1340,11 @@ case class JavaStreamTableTestUtil(test: TableTestBase) extends JavaTableTestUti
 case class BatchTableTestUtil(
     test: TableTestBase,
     catalogManager: Option[CatalogManager] = None,
-    conf: TableConfig = TableConfig.getDefault)
-  extends TableTestUtil(test, isStreamingMode = false, catalogManager, conf) {
+    override val tableConfig: TableConfig = TableConfig.getDefault)
+  extends TableTestUtil(test, isStreamingMode = false, catalogManager, tableConfig) {
 
   def buildBatchProgram(firstProgramNameToRemove: String): Unit = {
-    val program = FlinkBatchProgram.buildProgram(tableEnv.getConfig.getConfiguration)
+    val program = FlinkBatchProgram.buildProgram(tableEnv.getConfig)
     var startRemove = false
     program.getProgramNames.foreach {
       name =>
@@ -1370,8 +1368,7 @@ case class BatchTableTestUtil(
   def getBatchProgram(): FlinkChainedProgram[BatchOptimizeContext] = {
     val tableConfig = tableEnv.getConfig
     val calciteConfig = TableConfigUtils.getCalciteConfig(tableConfig)
-    calciteConfig.getBatchProgram.getOrElse(FlinkBatchProgram.buildProgram(
-      tableConfig.getConfiguration))
+    calciteConfig.getBatchProgram.getOrElse(FlinkBatchProgram.buildProgram(tableConfig))
   }
 
   def createCollectTableSink(
