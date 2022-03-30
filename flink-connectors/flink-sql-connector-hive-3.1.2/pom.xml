@@ -103,7 +103,7 @@ under the License.
 			<groupId>org.apache.avro</groupId>
 			<artifactId>avro-mapred</artifactId>
 			<classifier>hadoop2</classifier>
-			<version>1.8.2</version>
+			<version>1.11.0</version>
 			<exclusions>
 				<exclusion>
 					<groupId>org.mortbay.jetty</groupId>
