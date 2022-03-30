@@ -34,7 +34,7 @@ under the License.
 	<packaging>jar</packaging>
 
 	<properties>
-		<hbase.version>2.2.3</hbase.version>
+		<hbase.version>2.4.10</hbase.version>
 		<hbase.guava.version>28.1-jre</hbase.guava.version>
 	</properties>
 
