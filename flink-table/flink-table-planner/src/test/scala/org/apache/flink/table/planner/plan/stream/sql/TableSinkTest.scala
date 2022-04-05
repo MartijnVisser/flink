@@ -430,6 +430,35 @@ class TableSinkTest extends TableTestBase {
   }
 
   @Test
+  def testMetadataColumnThatConflictsWithPhysicalColumn(): Unit = {
+    util.addTable(
+      s"""
+         |CREATE TABLE MetadataTable (
+         |  `metadata_1` DOUBLE,
+         |  `m_1` STRING METADATA FROM 'metadata_1' VIRTUAL,
+         |  `m_2` BIGINT METADATA FROM 'metadata_2',
+         |  `metadata_2` DOUBLE,
+         |  `other` STRING
+         |) WITH (
+         |  'connector' = 'values',
+         |  'readable-metadata' = 'metadata_1:STRING, metadata_2:BIGINT',
+         |  'writable-metadata' = 'metadata_1:STRING, metadata_2:BIGINT'
+         |)
+       """.stripMargin)
+
+    val sql =
+      """
+        |INSERT INTO MetadataTable
+        |SELECT `metadata_1`, `m_2`, `metadata_2`, `other`
+        |FROM MetadataTable
+        |""".stripMargin
+    val stmtSet = util.tableEnv.createStatementSet()
+    stmtSet.addInsertSql(sql)
+
+    util.verifyRelPlan(stmtSet)
+  }
+
+  @Test
   def testSinkDisorderChangeLogWithJoin(): Unit = {
     util.tableEnv.executeSql(
       """
@@ -770,6 +799,27 @@ class TableSinkTest extends TableTestBase {
     stmtSet.addInsertSql("INSERT INTO sink SELECT * FROM MyTable")
 
     util.verifyAstPlan(stmtSet, ExplainDetail.CHANGELOG_MODE)
+  }
+
+  @Test
+  def testInsertPartColumn(): Unit = {
+    util.addTable(
+      s"""
+         |CREATE TABLE zm_test (
+         |  `a` BIGINT,
+         |  `m1` MAP<STRING, BIGINT>,
+         |  `m2` MAP<STRING NOT NULL, BIGINT>,
+         |  `m3` MAP<STRING, BIGINT NOT NULL>,
+         |  `m4` MAP<STRING NOT NULL, BIGINT NOT NULL>
+         |) WITH (
+         |  'connector' = 'values',
+         |  'sink-insert-only' = 'true'
+         |)
+         |""".stripMargin)
+    val stmtSet = util.tableEnv.createStatementSet()
+    stmtSet.addInsertSql(
+      "INSERT INTO zm_test(`a`) SELECT `a` FROM MyTable")
+    util.verifyRelPlan(stmtSet, ExplainDetail.CHANGELOG_MODE)
   }
 }
 
