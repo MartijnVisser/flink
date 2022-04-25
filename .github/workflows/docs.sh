@@ -31,6 +31,12 @@ if ! curl --fail -OL $HUGO_REPO ; then
 fi
 tar -zxvf $HUGO_ARTIFACT
 git submodule update --init --recursive
+# retrieve latest documentation from external connector repositories
+currentBranch=$(git branch --show-current)
+if [[ "$currentBranch" = "master" ]]; then
+  ./setup_docs.sh
+fi
+
 # generate docs into docs/target
 ./hugo -v --source docs --destination target
 if [ $? -ne 0 ]; then

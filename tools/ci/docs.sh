@@ -28,10 +28,11 @@ fi
 tar -zxvf $HUGO_ARTIFACT
 
 git submodule update --init --recursive
+# Setup the external documentation modules
+source docs/setup_docs.sh "pipeline"
 ./hugo --source docs
 
 if [ $? -ne 0 ]; then
 	echo "Error building the docs"
 	exit 1
 fi
-
