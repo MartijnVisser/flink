@@ -17,19 +17,14 @@
 # limitations under the License.
 ################################################################################
 
-# Create a default go.mod file
-pipelinerun="$1"
-
-# Determine if script is called by pipeline to determine correct path for go.mod file
-if [[ $pipelinerun == "pipeline" ]]; then
-  echo "Setup for pipeline"
-  goModFileLocation=$(pwd)/docs
-else
-  echo "Setup documentation locally"
-  goModFileLocation=$PWD
+HERE=` basename "$PWD"`
+if [[ "$HERE" != "docs" ]]; then
+    echo "Please only execute in the docs/ directory";
+    exit 1;
 fi
 
-cat <<EOF >$goModFileLocation/go.mod
+# Create a default go.mod file
+cat <<EOF >go.mod
 module github.com/apache/flink
 
 go 1.18
@@ -42,13 +37,7 @@ currentBranch=$(git branch --show-current)
 
 if [[ ! "$currentBranch" =~ ^release- ]] || [[ -z "$currentBranch" ]]; then
   # If the current branch is master or not provided, get the documentation from the main branch
-  if [[ $pipelinerun == "pipeline" ]]; then
-    cd docs
-    $(command -v hugo) mod get -u github.com/apache/flink-connector-elasticsearch/docs@main
-    cd ..
-  else
-    $(command -v hugo) mod get -u github.com/apache/flink-connector-elasticsearch/docs@main
-  fi
+  $(command -v hugo) mod get -u github.com/apache/flink-connector-elasticsearch/docs@main
   # Since there's no documentation yet available for a release branch,
   # we only get the documentation from the main branch
 fi

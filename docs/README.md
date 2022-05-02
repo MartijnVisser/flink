@@ -29,6 +29,7 @@ Make sure you have installed [Hugo](https://gohugo.io/getting-started/installing
 
 ```sh
 $ git submodule update --init --recursive
+$ ./setup_docs.sh
 $ ./build_docs.sh
 ```
 
