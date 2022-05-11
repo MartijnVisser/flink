@@ -32,6 +32,8 @@ jobs:
 
       - name: Setup architecture
         uses: uraimo/run-on-arch-action@v2
+        with:
+          arch: ${{ matrix.arch }}
 
       - name: Check out repository code
         uses: actions/checkout@v2
@@ -40,7 +42,6 @@ jobs:
         uses: actions/setup-java@v2
         with:
           java-version: ${{ matrix.jdk }}
-          arch: ${{ matrix.arch }}
           distribution: 'temurin'
           cache: 'maven'
 
