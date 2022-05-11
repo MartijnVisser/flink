@@ -30,9 +30,11 @@ jobs:
     steps:
       - run: echo "Running CI pipeline for JDK version ${{ matrix.jdk }}"
 
+      - name: Setup architecture
+        uses: uraimo/run-on-arch-action@v2
+
       - name: Check out repository code
         uses: actions/checkout@v2
-        uses: uraimo/run-on-arch-action@v2
 
       - name: Set JDK
         uses: actions/setup-java@v2
