@@ -37,13 +37,18 @@ echo "End-to-end directory $END_TO_END_DIR"
 
 start_time=$(date +%s)
 
+# Remove created archives during the creation of clusters
+function remove_archive {
+  rm $FLINK_TARBALL_DIR/$FLINK_TARBALL
+}
+
 # make sure we stop our cluster at the end
 function cluster_shutdown {
   if [ $TRAPPED_EXIT_CODE != 0 ];then
       debug_copy_and_show_logs
   fi
   docker-compose -f $END_TO_END_DIR/test-scripts/docker-hadoop-secure-cluster/docker-compose.yml down
-  rm $FLINK_TARBALL_DIR/$FLINK_TARBALL
+  remove_archive
 }
 on_exit cluster_shutdown
 
