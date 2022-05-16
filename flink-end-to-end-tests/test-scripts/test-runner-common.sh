@@ -112,7 +112,10 @@ function log_environment_info {
     df -hH
 
     echo "Top 15 largest disk space folders"
-    du -a | sort -n -r | head -n 10
+    du -hs * | sort -rh | head -15
+
+    echo "List content of root folder"
+    ls -l ./flink-end-to-end-tests
 
     if sudo -n true 2>/dev/null; then
       echo "Allocated ports"
