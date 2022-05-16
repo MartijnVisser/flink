@@ -111,6 +111,9 @@ function log_environment_info {
     echo "Disk information"
     df -hH
 
+    echo "Top 15 largest disk space folders"
+    du -a | sort -n -r | head -n 10
+
     if sudo -n true 2>/dev/null; then
       echo "Allocated ports"
       sudo netstat -tulpn
