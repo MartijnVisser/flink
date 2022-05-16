@@ -21,17 +21,12 @@ import org.apache.flink.connector.testframe.junit.annotations.TestContext;
 import org.apache.flink.tests.util.TestUtils;
 import org.apache.flink.util.DockerImageVersions;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
 import java.util.Arrays;
 
 /** End to end test for Elasticsearch6Sink based on connector testing framework. */
 @SuppressWarnings("unused")
 public class Elasticsearch6SinkE2ECase
         extends ElasticsearchSinkE2ECaseBase<KeyValue<Integer, String>> {
-
-    private static final Logger LOG = LoggerFactory.getLogger(Elasticsearch6SinkE2ECase.class);
 
     public Elasticsearch6SinkE2ECase() throws Exception {}
 
