@@ -307,7 +307,7 @@ try:
 
     if sys.version_info < (3, 7):
         # python 3.6 upper and lower limit
-        install_requires.append('numpy>=1.14.3,<1.20')
+        install_requires.append('numpy>=1.22.4,<1.23')
         install_requires.append('pandas>=1.0,<1.2.0')
         install_requires.append('pyarrow>=0.15.1,<7.0.0')
     else:
