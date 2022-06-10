@@ -31,60 +31,6 @@ under the License.
 	<name>Flink : E2E Tests : JSON AWS Glue Schema Registry</name>
 	<packaging>jar</packaging>
 
-	<properties>
-		<guava.version>29.0-jre</guava.version>
-		<netty.version>4.1.68.Final</netty.version>
-		<kotlin.version>1.3.50</kotlin.version>
-		<classgraph.version>4.8.120</classgraph.version>
-	</properties>
-
-	<!-- ============================= -->
-	<!-- DEPENDENCY MANAGEMENT -->
-	<!-- ============================= -->
-	<dependencyManagement>
-		<dependencies>
-			<!-- dependencies to solve enforcer check issue -->
-			<!-- can be removed once new version of Glue Schema Registry releases -->
-
-			<dependency>
-				<groupId >com.google.guava</groupId>
-				<artifactId>guava</artifactId>
-				<version>${guava.version}</version>
-			</dependency>
-
-			<dependency>
-				<groupId>io.netty</groupId>
-				<artifactId>netty-handler</artifactId>
-				<version>${netty.version}</version>
-			</dependency>
-
-			<dependency>
-				<groupId>io.netty</groupId>
-				<artifactId>netty-codec-http</artifactId>
-				<version>${netty.version}</version>
-			</dependency>
-
-			<dependency>
-				<groupId>org.jetbrains.kotlin</groupId>
-				<artifactId>kotlin-stdlib</artifactId>
-				<version>${kotlin.version}</version>
-			</dependency>
-
-			<dependency>
-				<groupId>org.jetbrains.kotlin</groupId>
-				<artifactId>kotlin-stdlib-common</artifactId>
-				<version>${kotlin.version}</version>
-			</dependency>
-
-			<dependency>
-				<groupId>io.github.classgraph</groupId>
-				<artifactId>classgraph</artifactId>
-				<version>${classgraph.version}</version>
-			</dependency>
-
-		</dependencies>
-	</dependencyManagement>
-
 	<dependencies>
 
 		<dependency>
