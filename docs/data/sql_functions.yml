@@ -41,7 +41,7 @@ comparison:
       table: value.isNotNull
       description: Returns TRUE if value is not NULL.
     - sql: value1 IS DISTINCT FROM value2
-      description: Returns TRUE if two values are different. NULL values are treated as identical here. E.g., 1 IS NOT DISTINCT FROM NULL returns TRUE; NULL IS NOT DISTINCT FROM NULL returns FALSE.
+      description: Returns TRUE if two values are different. NULL values are treated as identical here. E.g., 1 IS DISTINCT FROM NULL returns TRUE; NULL IS DISTINCT FROM NULL returns FALSE.
     - sql: value1 IS NOT DISTINCT FROM value2
       description: Returns TRUE if two values are equal. NULL values are treated as identical here. E.g., 1 IS NOT DISTINCT FROM NULL returns FALSE; NULL IS NOT DISTINCT FROM NULL returns TRUE.
     - sql: value1 BETWEEN [ ASYMMETRIC | SYMMETRIC ] value2 AND value3
@@ -588,6 +588,9 @@ collection:
   - sql: map ‘[’ value ‘]’
     table: MAP.at(ANY)
     description: Returns the value specified by key value in map.
+  - sql: ARRAY_CONTAINS(haystack, needle)
+    table: haystack.arrayContains(needle)
+    description: Returns whether the given element exists in an array. Checking for null elements in the array is supported. If the array itself is null, the function will return null. The given element is cast implicitly to the array's element type if necessary.
 
 json:
   - sql: IS JSON [ { VALUE | SCALAR | ARRAY | OBJECT } ]

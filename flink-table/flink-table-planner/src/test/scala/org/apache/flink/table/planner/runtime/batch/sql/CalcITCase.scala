@@ -27,6 +27,7 @@ import org.apache.flink.api.java.typeutils._
 import org.apache.flink.api.scala._
 import org.apache.flink.table.api.{DataTypes, TableSchema, ValidationException}
 import org.apache.flink.table.api.config.ExecutionConfigOptions
+import org.apache.flink.table.api.config.ExecutionConfigOptions.LegacyCastBehaviour
 import org.apache.flink.table.data.{DecimalDataUtils, TimestampData}
 import org.apache.flink.table.data.util.DataFormatConverters.LocalDateConverter
 import org.apache.flink.table.planner.expressions.utils.{RichFunc1, RichFunc2, RichFunc3, SplitUDF}
@@ -67,6 +68,15 @@ class CalcITCase extends BatchTestBase {
     registerCollection("NullTable3", nullData3, type3, "a, b, c", nullablesOfData3)
     registerCollection("SmallTable3", smallData3, type3, "a, b, c", nullablesOfData3)
     registerCollection("testTable", buildInData, buildInType, "a,b,c,d,e,f,g,h,i,j")
+  }
+
+  @Test
+  def testSelectWithLegacyCastIntToDate(): Unit = {
+    tEnv.getConfig.getConfiguration
+      .set(ExecutionConfigOptions.TABLE_EXEC_LEGACY_CAST_BEHAVIOUR, LegacyCastBehaviour.ENABLED)
+    checkResult(
+      "SELECT CASE WHEN true THEN CAST(2 AS INT) ELSE CAST('2017-12-11' AS DATE) END",
+      Seq(row("1970-01-03")))
   }
 
   @Test
@@ -2062,5 +2072,30 @@ class CalcITCase extends BatchTestBase {
   def testTryCast(): Unit = {
     checkResult("SELECT TRY_CAST('invalid' AS INT)", Seq(row(null)))
     checkResult("SELECT TRY_CAST(g AS DOUBLE) FROM testTable", Seq(row(null), row(null), row(null)))
+  }
+
+  @Test
+  def testMultipleCoalesces(): Unit = {
+    checkResult(
+      "SELECT COALESCE(1),\n" +
+        "COALESCE(1, 2),\n" +
+        "COALESCE(cast(NULL as int), 2),\n" +
+        "COALESCE(1, cast(NULL as int)),\n" +
+        "COALESCE(cast(NULL as int), cast(NULL as int), 3),\n" +
+        "COALESCE(4, cast(NULL as int), cast(NULL as int), cast(NULL as int)),\n" +
+        "COALESCE('1'),\n" +
+        "COALESCE('1', '23'),\n" +
+        "COALESCE(cast(NULL as varchar), '2'),\n" +
+        "COALESCE('1', cast(NULL as varchar)),\n" +
+        "COALESCE(cast(NULL as varchar), cast(NULL as varchar), '3'),\n" +
+        "COALESCE('4', cast(NULL as varchar), cast(NULL as varchar), cast(NULL as varchar)),\n" +
+        "COALESCE(1.0),\n" +
+        "COALESCE(1.0, 2),\n" +
+        "COALESCE(cast(NULL as double), 2.0),\n" +
+        "COALESCE(cast(NULL as double), 2.0, 3.0),\n" +
+        "COALESCE(2.0, cast(NULL as double), 3.0),\n" +
+        "COALESCE(cast(NULL as double), cast(NULL as double))",
+      Seq(row(1, 1, 2, 1, 3, 4, 1, 1, 2, 1, 3, 4, 1.0, 1.0, 2.0, 2.0, 2.0, null))
+    )
   }
 }

@@ -27,7 +27,6 @@ under the License.
 		<groupId>org.apache.flink</groupId>
 		<artifactId>flink-connectors</artifactId>
 		<version>1.16-SNAPSHOT</version>
-		<relativePath>..</relativePath>
 	</parent>
 
 	<artifactId>flink-connector-hive_${scala.binary.version}</artifactId>
@@ -943,8 +942,6 @@ under the License.
 				<groupId>org.apache.maven.plugins</groupId>
 				<artifactId>maven-surefire-plugin</artifactId>
 				<configuration>
-					<forkCount>1</forkCount>
-					<reuseForks>false</reuseForks>
 					<systemPropertyVariables>
 						<derby.stream.error.file>${project.build.directory}/derby.log</derby.stream.error.file>
 					</systemPropertyVariables>
@@ -1026,25 +1023,6 @@ under the License.
 
 	<profiles>
 		<!-- Activate these profiles with -Phive-x.x.x to build and test against different Hive versions -->
-		<profile>
-			<id>hive-2.3.9</id>
-			<properties>
-				<hive.version>2.3.9</hive.version>
-			</properties>
-			<dependencies>
-				<dependency>
-					<groupId>org.apache.orc</groupId>
-					<artifactId>orc-core</artifactId>
-					<version>${hive-2.3.9-orc-version}</version>
-					<exclusions>
-						<exclusion>
-							<groupId>org.apache.hadoop</groupId>
-							<artifactId>hadoop-common</artifactId>
-						</exclusion>
-					</exclusions>
-				</dependency>
-			</dependencies>
-		</profile>
 		<profile>
 			<id>hive-3.1.1</id>
 			<properties>

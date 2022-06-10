@@ -211,8 +211,7 @@ class TableConfig(object):
         Example:
         ::
 
-            >>> table_config = TableConfig() \\
-            ...     .set_idle_state_retention(datetime.timedelta(days=1))
+            >>> table_config.set_idle_state_retention(datetime.timedelta(days=1))
 
         .. note::
 
@@ -326,7 +325,7 @@ class TableConfig(object):
 
         .. note::
 
-            The python udf worker depends on Apache Beam (version == 2.27.0).
+            The python udf worker depends on Apache Beam (version == 2.38.0).
             Please ensure that the specified environment meets the above requirements.
 
         :param python_exec: The path of python interpreter.

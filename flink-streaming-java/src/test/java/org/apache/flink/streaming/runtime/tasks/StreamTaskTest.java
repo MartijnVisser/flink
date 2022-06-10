@@ -78,6 +78,7 @@ import org.apache.flink.runtime.state.KeyedStateHandle;
 import org.apache.flink.runtime.state.OperatorStateBackend;
 import org.apache.flink.runtime.state.OperatorStateHandle;
 import org.apache.flink.runtime.state.OperatorStreamStateHandle;
+import org.apache.flink.runtime.state.PhysicalStateHandleID;
 import org.apache.flink.runtime.state.SharedStateRegistry;
 import org.apache.flink.runtime.state.SnapshotResult;
 import org.apache.flink.runtime.state.StateBackendFactory;
@@ -98,6 +99,7 @@ import org.apache.flink.runtime.taskmanager.Task;
 import org.apache.flink.runtime.taskmanager.TaskExecutionState;
 import org.apache.flink.runtime.taskmanager.TaskManagerActions;
 import org.apache.flink.runtime.taskmanager.TestTaskBuilder;
+import org.apache.flink.runtime.testutils.ExceptionallyDoneFuture;
 import org.apache.flink.runtime.throughput.ThroughputCalculator;
 import org.apache.flink.runtime.util.TestingTaskManagerRuntimeInfo;
 import org.apache.flink.streaming.api.TimeCharacteristic;
@@ -182,6 +184,7 @@ import static org.apache.flink.configuration.TaskManagerOptions.BUFFER_DEBLOAT_T
 import static org.apache.flink.configuration.TaskManagerOptions.MEMORY_SEGMENT_SIZE;
 import static org.apache.flink.runtime.checkpoint.CheckpointFailureReason.UNKNOWN_TASK_CHECKPOINT_NOTIFICATION_FAILURE;
 import static org.apache.flink.runtime.checkpoint.StateObjectCollection.singleton;
+import static org.apache.flink.runtime.executiongraph.ExecutionGraphTestUtils.createExecutionAttemptId;
 import static org.apache.flink.runtime.state.CheckpointStorageLocationReference.getDefault;
 import static org.apache.flink.streaming.runtime.tasks.mailbox.TaskMailbox.MAX_PRIORITY;
 import static org.apache.flink.streaming.util.StreamTaskUtil.waitTaskIsRunning;
@@ -782,7 +785,7 @@ public class StreamTaskTest extends TestLogger {
         TaskStateManager taskStateManager =
                 new TaskStateManagerImpl(
                         new JobID(1L, 2L),
-                        new ExecutionAttemptID(),
+                        createExecutionAttemptId(),
                         mock(TaskLocalStateStoreImpl.class),
                         new InMemoryStateChangelogStorage(),
                         null,
@@ -975,7 +978,7 @@ public class StreamTaskTest extends TestLogger {
         TaskStateManager taskStateManager =
                 new TaskStateManagerImpl(
                         new JobID(1L, 2L),
-                        new ExecutionAttemptID(),
+                        createExecutionAttemptId(),
                         mock(TaskLocalStateStoreImpl.class),
                         new InMemoryStateChangelogStorage(),
                         null,
@@ -2398,6 +2401,11 @@ public class StreamTaskTest extends TestLogger {
         @Override
         public FSDataInputStream openInputStream() throws IOException {
             throw new IOException("Cannot open input streams in testing implementation.");
+        }
+
+        @Override
+        public PhysicalStateHandleID getStreamStateHandleID() {
+            throw new RuntimeException("Cannot return ID in testing implementation.");
         }
 
         @Override

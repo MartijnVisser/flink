@@ -876,6 +876,14 @@ object ScalarOperatorGens {
 
     // Fallback to old cast rules
     (operand.resultType.getTypeRoot, targetType.getTypeRoot) match {
+      case (INTEGER, DATE) =>
+        if (isLegacyCastBehaviourEnabled(ctx)) {
+          internalExprCasting(operand, targetType)
+        } else {
+          throw new CodeGenException(
+            "Only legacy cast behaviour supports cast from "
+              + s"'${operand.resultType}' to '$targetType'.")
+        }
 
       // identity casting
       case (_, _) if isInteroperable(operand.resultType, targetType) =>
@@ -1351,13 +1359,27 @@ object ScalarOperatorGens {
     val baseMap = newName("map")
 
     // prepare map key array
-    val keyElements = elements.grouped(2).map { case Seq(key, _) => key }.toSeq
+    val keyElements = elements
+      .grouped(2)
+      .map { case Seq(key, value) => (key, value) }
+      .toSeq
+      .groupBy(_._1)
+      .map(_._2.last)
+      .keys
+      .toSeq
     val keyType = mapType.getKeyType
     val keyExpr = generateArray(ctx, new ArrayType(keyType), keyElements)
     val isKeyFixLength = isPrimitive(keyType)
 
     // prepare map value array
-    val valueElements = elements.grouped(2).map { case Seq(_, value) => value }.toSeq
+    val valueElements = elements
+      .grouped(2)
+      .map { case Seq(key, value) => (key, value) }
+      .toSeq
+      .groupBy(_._1)
+      .map(_._2.last)
+      .values
+      .toSeq
     val valueType = mapType.getValueType
     val valueExpr = generateArray(ctx, new ArrayType(valueType), valueElements)
     val isValueFixLength = isPrimitive(valueType)
@@ -1719,24 +1741,29 @@ object ScalarOperatorGens {
       operandType: LogicalType,
       resultType: LogicalType): String => String = {
 
-    // All numeric rules are assumed to be instance of AbstractExpressionCodeGeneratorCastRule
-    val rule = CastRuleProvider.resolve(operandType, resultType)
-    rule match {
-      case codeGeneratorCastRule: ExpressionCodeGeneratorCastRule[_, _] =>
-        operandTerm =>
-          codeGeneratorCastRule.generateExpression(
-            toCodegenCastContext(ctx),
-            operandTerm,
-            operandType,
-            resultType
-          )
-      case _ =>
-        throw new CodeGenException(s"Unsupported casting from $operandType to $resultType.")
+    // no casting necessary
+    if (isInteroperable(operandType, resultType)) { operandTerm => s"$operandTerm" }
+    else {
+      // All numeric rules are assumed to be instance of AbstractExpressionCodeGeneratorCastRule
+      val rule = CastRuleProvider.resolve(operandType, resultType)
+      rule match {
+        case codeGeneratorCastRule: ExpressionCodeGeneratorCastRule[_, _] =>
+          operandTerm =>
+            codeGeneratorCastRule.generateExpression(
+              toCodegenCastContext(ctx),
+              operandTerm,
+              operandType,
+              resultType
+            )
+        case _ =>
+          throw new CodeGenException(s"Unsupported casting from $operandType to $resultType.")
+      }
     }
   }
 
   def toCodegenCastContext(ctx: CodeGeneratorContext): CodeGeneratorCastRule.Context = {
     new CodeGeneratorCastRule.Context {
+      override def isPrinting(): Boolean = false
       override def legacyBehaviour(): Boolean = isLegacyCastBehaviourEnabled(ctx)
       override def getSessionTimeZoneTerm: String = ctx.addReusableSessionTimeZone()
       override def declareVariable(ty: String, variablePrefix: String): String =
@@ -1752,11 +1779,13 @@ object ScalarOperatorGens {
 
   def toCastContext(ctx: CodeGeneratorContext): CastRule.Context = {
     new CastRule.Context {
+      override def isPrinting(): Boolean = false
+
       override def legacyBehaviour(): Boolean = isLegacyCastBehaviourEnabled(ctx)
 
       override def getSessionZoneId: ZoneId = TableConfigUtils.getLocalTimeZone(ctx.tableConfig)
 
-      override def getClassLoader: ClassLoader = Thread.currentThread().getContextClassLoader
+      override def getClassLoader: ClassLoader = ctx.classLoader
     }
   }
 

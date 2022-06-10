@@ -121,8 +121,9 @@ public class BatchExecHashWindowAggregate extends ExecNodeBase<RowData>
         final RowType inputRowType = (RowType) inputEdge.getOutputType();
         final HashWindowCodeGenerator hashWindowCodeGenerator =
                 new HashWindowCodeGenerator(
-                        new CodeGeneratorContext(config),
-                        planner.getRelBuilder(),
+                        new CodeGeneratorContext(
+                                config, planner.getFlinkContext().getClassLoader()),
+                        planner.createRelBuilder(),
                         window,
                         inputTimeFieldIndex,
                         inputTimeIsDate,

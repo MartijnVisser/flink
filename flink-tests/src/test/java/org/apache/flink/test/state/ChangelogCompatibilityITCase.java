@@ -38,6 +38,7 @@ import org.junit.runner.RunWith;
 import org.junit.runners.Parameterized;
 
 import java.io.File;
+import java.time.Duration;
 import java.util.Arrays;
 import java.util.List;
 import java.util.NoSuchElementException;
@@ -66,10 +67,15 @@ public class ChangelogCompatibilityITCase {
     @Parameterized.Parameters(name = "{0}")
     public static List<TestCase> parameters() {
         return Arrays.asList(
-                // disable changelog - allow restore only from CANONICAL_SAVEPOINT
+                // disable changelog - allow restore from CANONICAL_SAVEPOINT
                 TestCase.startWithChangelog(true)
                         .restoreWithChangelog(false)
                         .from(RestoreSource.CANONICAL_SAVEPOINT)
+                        .allowRestore(true),
+                // disable changelog - allow restore from CHECKPOINT
+                TestCase.startWithChangelog(true)
+                        .restoreWithChangelog(false)
+                        .from(RestoreSource.CHECKPOINT)
                         .allowRestore(true),
                 // enable changelog - allow restore only from CANONICAL_SAVEPOINT
                 TestCase.startWithChangelog(false)
@@ -287,7 +293,8 @@ public class ChangelogCompatibilityITCase {
         Configuration config = new Configuration();
         config.setString(CHECKPOINTS_DIRECTORY, pathToString(checkpointDir));
         config.setString(SAVEPOINT_DIRECTORY, pathToString(savepointDir));
-        FsStateChangelogStorageFactory.configure(config, TEMPORARY_FOLDER.newFolder());
+        FsStateChangelogStorageFactory.configure(
+                config, TEMPORARY_FOLDER.newFolder(), Duration.ofMinutes(1), 10);
         miniClusterResource =
                 new MiniClusterWithClientResource(
                         new MiniClusterResourceConfiguration.Builder()

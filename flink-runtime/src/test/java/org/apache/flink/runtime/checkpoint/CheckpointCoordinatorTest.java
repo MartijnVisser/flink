@@ -126,6 +126,7 @@ import static org.apache.flink.runtime.checkpoint.CheckpointFailureReason.CHECKP
 import static org.apache.flink.runtime.checkpoint.CheckpointFailureReason.IO_EXCEPTION;
 import static org.apache.flink.runtime.checkpoint.CheckpointFailureReason.PERIODIC_SCHEDULER_SHUTDOWN;
 import static org.apache.flink.runtime.checkpoint.CheckpointStoreUtil.INVALID_CHECKPOINT_ID;
+import static org.apache.flink.runtime.executiongraph.ExecutionGraphTestUtils.createExecutionAttemptId;
 import static org.apache.flink.util.Preconditions.checkNotNull;
 import static org.apache.flink.util.Preconditions.checkState;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -1787,7 +1788,8 @@ public class CheckpointCoordinatorTest extends TestLogger {
 
         // unknown ack vertex
         checkpointCoordinator.receiveAcknowledgeMessage(
-                new AcknowledgeCheckpoint(graph.getJobID(), new ExecutionAttemptID(), checkpointId),
+                new AcknowledgeCheckpoint(
+                        graph.getJobID(), createExecutionAttemptId(), checkpointId),
                 TASK_MANAGER_LOCATION_INFO);
 
         checkpointCoordinator.shutdown();
@@ -1871,7 +1873,7 @@ public class CheckpointCoordinatorTest extends TestLogger {
         checkpointCoordinator.receiveAcknowledgeMessage(
                 new AcknowledgeCheckpoint(
                         graph.getJobID(),
-                        new ExecutionAttemptID(),
+                        createExecutionAttemptId(),
                         checkpointId,
                         new CheckpointMetrics(),
                         unknownSubtaskState),
@@ -1886,7 +1888,7 @@ public class CheckpointCoordinatorTest extends TestLogger {
         checkpointCoordinator.receiveAcknowledgeMessage(
                 new AcknowledgeCheckpoint(
                         new JobID(),
-                        new ExecutionAttemptID(),
+                        createExecutionAttemptId(),
                         checkpointId,
                         new CheckpointMetrics(),
                         differentJobSubtaskState),
@@ -1944,7 +1946,7 @@ public class CheckpointCoordinatorTest extends TestLogger {
         checkpointCoordinator.receiveAcknowledgeMessage(
                 new AcknowledgeCheckpoint(
                         new JobID(),
-                        new ExecutionAttemptID(),
+                        createExecutionAttemptId(),
                         checkpointId,
                         new CheckpointMetrics(),
                         differentJobSubtaskState),
@@ -1959,7 +1961,7 @@ public class CheckpointCoordinatorTest extends TestLogger {
         checkpointCoordinator.receiveAcknowledgeMessage(
                 new AcknowledgeCheckpoint(
                         graph.getJobID(),
-                        new ExecutionAttemptID(),
+                        createExecutionAttemptId(),
                         checkpointId,
                         new CheckpointMetrics(),
                         unknownSubtaskState2),
@@ -3084,14 +3086,17 @@ public class CheckpointCoordinatorTest extends TestLogger {
                         graph.getJobID(), coordinator, attemptID1, expectedRootCause);
 
         assertTrue(syncSavepoint.isDisposed());
-
+        String expectedRootCauseMessage =
+                String.format(
+                        "%s: %s",
+                        expectedRootCause.getClass().getName(), expectedRootCause.getMessage());
         try {
             savepointFuture.get();
             fail("Expected Exception not found.");
         } catch (ExecutionException e) {
             final Throwable cause = ExceptionUtils.stripExecutionException(e);
             assertTrue(cause instanceof CheckpointException);
-            assertEquals(expectedRootCause.getMessage(), cause.getCause().getCause().getMessage());
+            assertEquals(expectedRootCauseMessage, cause.getCause().getCause().getMessage());
         }
 
         assertEquals(1L, invocationCounterAndException.f0.intValue());
@@ -3102,7 +3107,7 @@ public class CheckpointCoordinatorTest extends TestLogger {
                                 .getCause()
                                 .getCause()
                                 .getMessage()
-                                .equals(expectedRootCause.getMessage()));
+                                .equals(expectedRootCauseMessage));
 
         coordinator.shutdown();
     }
@@ -3228,7 +3233,7 @@ public class CheckpointCoordinatorTest extends TestLogger {
             coordinator.receiveDeclineMessage(
                     new DeclineCheckpoint(
                             graph.getJobID(),
-                            new ExecutionAttemptID(),
+                            createExecutionAttemptId(),
                             1L,
                             new CheckpointException(CHECKPOINT_DECLINED)),
                     "none");
@@ -3685,6 +3690,69 @@ public class CheckpointCoordinatorTest extends TestLogger {
         } finally {
             checkpointCoordinator.shutdown();
             executorService.shutdownNow();
+        }
+    }
+
+    @Test
+    public void testAbortingBeforeTriggeringCheckpointOperatorCoordinator() throws Exception {
+        // Warn: The case is fragile since a specific order of executing the tasks is required to
+        // reproduce the issue.
+        JobVertexID jobVertexID = new JobVertexID();
+        ExecutionGraph graph =
+                new CheckpointCoordinatorTestingUtils.CheckpointExecutionGraphBuilder()
+                        .addJobVertex(jobVertexID)
+                        .build(EXECUTOR_RESOURCE.getExecutor());
+
+        String trigger = "Trigger";
+        String abort = "Abort";
+        final List<String> notificationSequence = new ArrayList<>();
+        CheckpointCoordinatorTestingUtils.MockOperatorCoordinatorCheckpointContext context =
+                new CheckpointCoordinatorTestingUtils
+                                .MockOperatorCheckpointCoordinatorContextBuilder()
+                        .setOperatorID(new OperatorID())
+                        .setOnCallingCheckpointCoordinator(
+                                (id, future) -> {
+                                    notificationSequence.add(trigger + id);
+                                    future.complete(new byte[0]);
+                                })
+                        .setOnCallingAbortCurrentTriggering(() -> notificationSequence.add(abort))
+                        .build();
+
+        CheckpointCoordinator checkpointCoordinator =
+                new CheckpointCoordinatorBuilder()
+                        .setCheckpointCoordinatorConfiguration(
+                                CheckpointCoordinatorConfiguration.builder()
+                                        .setCheckpointTimeout(10)
+                                        .build())
+                        .setIoExecutor(manuallyTriggeredScheduledExecutor)
+                        .setTimer(manuallyTriggeredScheduledExecutor)
+                        .setCoordinatorsToCheckpoint(Collections.singleton(context))
+                        .build(graph);
+        try {
+            checkpointCoordinator.triggerCheckpoint(false);
+            // trigger twice to get checkpoint id and create pending checkpoint
+            manuallyTriggeredScheduledExecutor.trigger();
+            manuallyTriggeredScheduledExecutor.trigger();
+
+            // declineCheckpoint should be called after pending checkpoint is created but before the
+            // following steps
+            declineCheckpoint(1L, checkpointCoordinator, jobVertexID, graph);
+            // then trigger all tasks. the order is 1.initialize checkpoint location, 2.handle
+            // checkpoint abortion, 3.trigger coordinator checkpointing for the aborted checkpoint.
+            // The disordering of abortion and triggering was causing an error
+            manuallyTriggeredScheduledExecutor.triggerAll();
+
+            // trigger the next checkpoint
+            checkState(!checkpointCoordinator.isTriggering());
+            checkpointCoordinator.triggerCheckpoint(false);
+            manuallyTriggeredScheduledExecutor.triggerAll();
+
+            Assert.assertTrue(
+                    !notificationSequence.contains(trigger + "1")
+                            || notificationSequence.indexOf(trigger + "1")
+                                    < notificationSequence.indexOf(abort));
+        } finally {
+            checkpointCoordinator.shutdown();
         }
     }
 

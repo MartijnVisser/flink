@@ -215,10 +215,8 @@ public class TaskExecutorPartitionLifecycleTest extends TestLogger {
             TaskSubmissionTestEnvironment.registerJobMasterConnection(
                     jobTable,
                     jobId,
-                    rpc,
                     jobMasterGateway,
                     new NoOpTaskManagerActions(),
-                    timeout,
                     taskExecutor.getMainThreadExecutableForTesting());
 
             final TaskExecutorGateway taskExecutorGateway =
@@ -246,7 +244,7 @@ public class TaskExecutorPartitionLifecycleTest extends TestLogger {
 
             disconnectFuture.get();
         } finally {
-            RpcUtils.terminateRpcEndpoint(taskExecutor, timeout);
+            RpcUtils.terminateRpcEndpoint(taskExecutor);
         }
     }
 
@@ -422,9 +420,7 @@ public class TaskExecutorPartitionLifecycleTest extends TestLogger {
                         new SerializedValue<>(new ExecutionConfig()),
                         "Sender",
                         1,
-                        0,
                         1,
-                        0,
                         new Configuration(),
                         new Configuration(),
                         TestingInvokable.class.getName(),
@@ -567,7 +563,7 @@ public class TaskExecutorPartitionLifecycleTest extends TestLogger {
             testAction.accept(
                     jobId, taskResultPartitionDescriptor, taskExecutor, taskExecutorGateway);
         } finally {
-            RpcUtils.terminateRpcEndpoint(taskExecutor, timeout);
+            RpcUtils.terminateRpcEndpoint(taskExecutor);
         }
 
         // the shutdown of the backing shuffle environment releases all partitions

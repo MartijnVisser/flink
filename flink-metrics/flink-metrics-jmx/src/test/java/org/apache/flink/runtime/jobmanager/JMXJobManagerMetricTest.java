@@ -20,13 +20,12 @@ package org.apache.flink.runtime.jobmanager;
 
 import org.apache.flink.api.common.JobStatus;
 import org.apache.flink.api.common.time.Deadline;
-import org.apache.flink.api.common.time.Time;
 import org.apache.flink.client.program.ClusterClient;
 import org.apache.flink.configuration.ConfigConstants;
 import org.apache.flink.configuration.Configuration;
 import org.apache.flink.configuration.MetricOptions;
 import org.apache.flink.core.testutils.OneShotLatch;
-import org.apache.flink.metrics.jmx.JMXReporter;
+import org.apache.flink.metrics.jmx.JMXReporterFactory;
 import org.apache.flink.runtime.checkpoint.CheckpointRetentionPolicy;
 import org.apache.flink.runtime.execution.Environment;
 import org.apache.flink.runtime.jobgraph.JobGraph;
@@ -79,8 +78,8 @@ class JMXJobManagerMetricTest {
         flinkConfiguration.setString(
                 ConfigConstants.METRICS_REPORTER_PREFIX
                         + "test."
-                        + MetricOptions.REPORTER_CLASS.key(),
-                JMXReporter.class.getName());
+                        + MetricOptions.REPORTER_FACTORY_CLASS.key(),
+                JMXReporterFactory.class.getName());
         flinkConfiguration.setString(MetricOptions.SCOPE_NAMING_JM_JOB, "jobmanager.<job_name>");
 
         return flinkConfiguration;
@@ -122,7 +121,7 @@ class JMXJobManagerMetricTest {
 
             FutureUtils.retrySuccessfulWithDelay(
                             () -> client.getJobStatus(jobGraph.getJobID()),
-                            Time.milliseconds(10),
+                            Duration.ofMillis(10),
                             deadline,
                             status -> status == JobStatus.RUNNING,
                             new ScheduledExecutorServiceAdapter(EXECUTOR_RESOURCE.getExecutor()))

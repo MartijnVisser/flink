@@ -900,7 +900,7 @@ class Expression(Generic[T]):
         ::
 
             >>> tab.where(col("a").in_(1, 2, 3))
-            >>> table_a.where(col("x").in_(table_b.select("y")))
+            >>> table_a.where(col("x").in_(table_b.select(col("y"))))
         """
         from pyflink.table import Table
         if isinstance(first_element_or_table, Table):
@@ -1334,6 +1334,16 @@ class Expression(Generic[T]):
         .. seealso:: :func:`~Expression.at`, :py:attr:`~Expression.cardinality`
         """
         return _unary_op("element")(self)
+
+    def array_contains(self, needle) -> 'Expression':
+        """
+        Returns whether the given element exists in an array.
+
+        Checking for null elements in the array is supported. If the array itself is null, the
+        function will return null. The given element is cast implicitly to the array's element type
+        if necessary.
+        """
+        return _binary_op("arrayContains")(self, needle)
 
     # ---------------------------- time definition functions -----------------------------
 

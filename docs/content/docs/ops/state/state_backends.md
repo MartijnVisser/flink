@@ -421,7 +421,7 @@ env.enable_changelog_statebackend(true)
 
 ### Monitoring
 
-Available metrics are listed [here]({{< ref "docs/ops/metrics#changelog" >}}).
+Available metrics are listed [here]({{< ref "docs/ops/metrics#state-changelog" >}}).
 
 If a task is backpressured by writing state changes, it will be shown as busy (red) in the UI.
 
@@ -477,14 +477,14 @@ state.checkpoint-storage: jobmanager
 ```java
 StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
 env.setStateBackend(new HashMapStateBackend());
-env.getCheckpointConfig().setCheckpointStorage(new JobManagerStateBackend());
+env.getCheckpointConfig().setCheckpointStorage(new JobManagerCheckpointStorage());
 ```
 {{< /tab >}}
 {{< tab "Scala" >}}
 ```scala
 val env = StreamExecutionEnvironment.getExecutionEnvironment
 env.setStateBackend(new HashMapStateBackend)
-env.getCheckpointConfig().setCheckpointStorage(new JobManagerStateBackend)
+env.getCheckpointConfig().setCheckpointStorage(new JobManagerCheckpointStorage)
 ```
 {{< /tab >}}
 {{< /tabs>}}
