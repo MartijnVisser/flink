@@ -46,12 +46,6 @@ Flink 还在 `/opt` 文件夹下提供了额外的可选依赖项，可以通过
 
 有关如何为特定 Scala 版本构建 Flink 的细节，请查阅[构建指南]({{< ref "docs/flinkDev/building" >}}#scala-versions)。
 
-2.12.8 之后的 Scala 版本与之前的 2.12.x 版本二进制不兼容，使 Flink 项目无法将其 2.12.x 版本直接升级到 2.12.8 以上。您可以按照[构建指南]({{< ref "docs/flinkDev/building" >}}#scala-versions)在本地为更高版本的 Scala 构建 Flink 。为此，您需要在构建时添加 `-Djapicmp.skip` 以跳过二进制兼容性检查。
-
-有关更多细节，请查阅 [Scala 2.12.8 版本说明](https://github.com/scala/scala/releases/tag/v2.12.8)。相关部分指出：
-
-第二项修改是二进制不兼容的：2.12.8 编译器忽略了由更早版本的 2.12 编译器生成的某些方法。然而我们相信这些方法永远不会被使用，现有的编译代码仍可工作。有关更多详细信息，请查阅[pull request 描述](https://github.com/scala/scala/pull/7469)。
-
 ## Table 依赖剖析
 
 Flink 发行版默认包含执行 Flink SQL 任务的必要 JAR 文件（位于 `/lib` 目录），主要有：
