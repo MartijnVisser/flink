@@ -195,6 +195,17 @@ under the License.
 										<exclude>META-INF/NOTICE.txt</exclude>
 									</excludes>
 								</filter>
+								<filter>
+									<artifact>org.scala-lang*:*</artifact>
+									<excludes>
+										<!-- Duplicate Apache License -->
+										<exclude>LICENSE</exclude>
+										<!-- Redundant and misleading since it references a non-existent directory -->
+										<exclude>NOTICE</exclude>
+										<!-- Excluding scala-js-jquery  -->
+										<exclude>jquery*.js</exclude>
+									</excludes>
+								</filter>
 							</filters>
 							<transformers>
 								<transformer implementation="org.apache.maven.plugins.shade.resource.AppendingTransformer">
