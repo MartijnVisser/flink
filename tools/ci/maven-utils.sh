@@ -107,7 +107,11 @@ MVN_GLOBAL_OPTIONS_WITHOUT_MIRROR+="--no-snapshot-updates "
 MVN_GLOBAL_OPTIONS_WITHOUT_MIRROR+="-B "
 # globally control the build profile details
 MVN_GLOBAL_OPTIONS_WITHOUT_MIRROR+="$PROFILE "
+# temporarily disable JAPICMP plugin due to Scala update
+MVN_GLOBAL_OPTIONS_WITHOUT_MIRROR+="-Djapicmp.skip "
 
 export MVN_GLOBAL_OPTIONS="${MVN_GLOBAL_OPTIONS_WITHOUT_MIRROR} "
 # use google mirror everywhere
 MVN_GLOBAL_OPTIONS+="--settings $MAVEN_MIRROR_CONFIG_FILE ${NPM_PROXY_PROFILE_ACTIVATION} "
+# temporarily disable JAPICMP plugin due to Scala update
+MVN_GLOBAL_OPTIONS+="-Djapicmp.skip "

@@ -35,7 +35,7 @@ under the License.
 	<properties>
 		<akka.version>2.6.15</akka.version>
 		<scala.binary.version>2.12</scala.binary.version>
-		<scala.version>2.12.7</scala.version>
+		<scala.version>2.12.8</scala.version>
 	</properties>
 
 	<dependencies>
@@ -193,6 +193,17 @@ under the License.
 										<!-- Only parts of NOTICE file actually apply to the netty JAR and have been manually
 											 copied into this modules's NOTICE file. -->
 										<exclude>META-INF/NOTICE.txt</exclude>
+									</excludes>
+								</filter>
+								<filter>
+									<artifact>org.scala-lang*:*</artifact>
+									<excludes>
+										<!-- Duplicate Apache License -->
+										<exclude>LICENSE</exclude>
+										<!-- Redundant and misleading since it references a non-existent directory -->
+										<exclude>NOTICE</exclude>
+										<!-- Excluding scala-js-jquery  -->
+										<exclude>jquery*.js</exclude>
 									</excludes>
 								</filter>
 							</filters>
