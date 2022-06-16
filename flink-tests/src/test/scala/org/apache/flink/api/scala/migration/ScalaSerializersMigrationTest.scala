@@ -53,7 +53,7 @@ class ScalaSerializersMigrationTest {
         .asInstanceOf[EitherTypeInfo[_, _, _]]
 
     Assert.assertEquals(
-      "org.apache.flink.api.scala.migration.ScalaSerializersMigrationTest$$anon$8",
+      "org.apache.flink.api.scala.migration.ScalaSerializersMigrationTest$$anon$1",
       caseClassInfo.getClass.getName
     )
     assertPreviouslyGeneratedClassExists(
@@ -66,7 +66,7 @@ class ScalaSerializersMigrationTest {
     )
 
     Assert.assertEquals(
-      "org.apache.flink.api.scala.migration.ScalaSerializersMigrationTest$$anon$9",
+      "org.apache.flink.api.scala.migration.ScalaSerializersMigrationTest$$anon$3",
       caseClassWithNestingInfo.getClass.getName
     )
     assertPreviouslyGeneratedClassExists(
@@ -90,7 +90,7 @@ class ScalaSerializersMigrationTest {
     )
 
     Assert.assertEquals(
-      "org.apache.flink.api.scala.migration.ScalaSerializersMigrationTest$$anon$16",
+      "org.apache.flink.api.scala.migration.ScalaSerializersMigrationTest$$anon$9",
       traversableInfo.getClass.getName
     )
     assertPreviouslyGeneratedClassExists(
@@ -104,7 +104,7 @@ class ScalaSerializersMigrationTest {
         .getClass
     )
     Assert.assertEquals(
-      "org.apache.flink.api.scala.migration.ScalaSerializersMigrationTest$$anon$11",
+      "org.apache.flink.api.scala.migration.ScalaSerializersMigrationTest$$anon$7",
       traversableInfo.elementTypeInfo.getClass.getName
     )
     assertPreviouslyGeneratedClassExists(
@@ -119,7 +119,7 @@ class ScalaSerializersMigrationTest {
     )
 
     Assert.assertEquals(
-      "org.apache.flink.api.scala.migration.ScalaSerializersMigrationTest$$anon$13",
+      "org.apache.flink.api.scala.migration.ScalaSerializersMigrationTest$$anon$11",
       tryInfo.elemTypeInfo.getClass.getName
     )
     assertPreviouslyGeneratedClassExists(
@@ -132,7 +132,7 @@ class ScalaSerializersMigrationTest {
     )
 
     Assert.assertEquals(
-      "org.apache.flink.api.scala.migration.ScalaSerializersMigrationTest$$anon$14",
+      "org.apache.flink.api.scala.migration.ScalaSerializersMigrationTest$$anon$13",
       optionInfo.getElemTypeInfo.getClass.getName
     )
     assertPreviouslyGeneratedClassExists(
