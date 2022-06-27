@@ -109,7 +109,10 @@ function log_environment_info {
     jps
 
     echo "Disk information"
-    df -hH
+    df -h
+
+    echo "List top 20 directories with largest file size"
+    du -a . | sort -n -r | head -n 20
 
     if sudo -n true 2>/dev/null; then
       echo "Allocated ports"
@@ -131,11 +134,17 @@ function cleanup_proc {
 
 # Cleans up all temporary folders and files
 function cleanup_tmp_files {
+    echo "List top 20 directories with largest file size BEFORE cleaning temorary folders and files"
+    du -a . | sort -n -r | head -n 20
+
     rm -f $FLINK_LOG_DIR/*
     echo "Deleted all files under $FLINK_LOG_DIR/"
 
     rm -rf ${TEST_DATA_DIR} 2> /dev/null
     echo "Deleted ${TEST_DATA_DIR}"
+
+    echo "List top 20 directories with largest file size AFTER cleaning temorary folders and files"
+    du -a . | sort -n -r | head -n 20
 }
 
 # Shuts down the cluster and cleans up all temporary folders and files.
