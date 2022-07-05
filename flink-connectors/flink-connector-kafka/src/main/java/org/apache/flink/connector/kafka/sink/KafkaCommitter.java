@@ -112,6 +112,9 @@ class KafkaCommitter implements Committer<KafkaCommittable>, Closeable {
                         e);
                 recyclable.ifPresent(Recyclable::close);
                 request.signalFailedWithUnknownReason(e);
+            } finally {
+                LOG.info("Recycle producer: {}", producer);
+                recyclable.ifPresent(Recyclable::close);
             }
         }
     }
