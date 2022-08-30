@@ -86,6 +86,7 @@ import org.apache.flink.runtime.state.StateHandleID;
 import org.apache.flink.runtime.state.StateInitializationContext;
 import org.apache.flink.runtime.state.StatePartitionStreamProvider;
 import org.apache.flink.runtime.state.StreamStateHandle;
+import org.apache.flink.runtime.state.TaskExecutorStateChangelogStoragesManager;
 import org.apache.flink.runtime.state.TaskLocalStateStoreImpl;
 import org.apache.flink.runtime.state.TaskStateManager;
 import org.apache.flink.runtime.state.TaskStateManagerImpl;
@@ -438,6 +439,7 @@ public class StreamTaskTest extends TestLogger {
         cfg.setOperatorID(new OperatorID(4711L, 42L));
         cfg.setStreamOperator(new SlowlyDeserializingOperator());
         cfg.setTimeCharacteristic(TimeCharacteristic.ProcessingTime);
+        cfg.serializeAllConfigs();
 
         final TaskManagerActions taskManagerActions = spy(new NoOpTaskManagerActions());
         try (NettyShuffleEnvironment shuffleEnvironment =
@@ -788,6 +790,7 @@ public class StreamTaskTest extends TestLogger {
                         createExecutionAttemptId(),
                         mock(TaskLocalStateStoreImpl.class),
                         new InMemoryStateChangelogStorage(),
+                        new TaskExecutorStateChangelogStoragesManager(),
                         null,
                         checkpointResponder);
 
@@ -981,6 +984,7 @@ public class StreamTaskTest extends TestLogger {
                         createExecutionAttemptId(),
                         mock(TaskLocalStateStoreImpl.class),
                         new InMemoryStateChangelogStorage(),
+                        new TaskExecutorStateChangelogStoragesManager(),
                         null,
                         checkpointResponder);
 
@@ -1154,6 +1158,7 @@ public class StreamTaskTest extends TestLogger {
         StreamConfig streamConfig = new StreamConfig(taskConfiguration);
         streamConfig.setStreamOperator(new StreamMap<>(value -> value));
         streamConfig.setOperatorID(new OperatorID());
+        streamConfig.serializeAllConfigs();
         try (MockEnvironment mockEnvironment =
                 new MockEnvironmentBuilder().setTaskConfiguration(taskConfiguration).build()) {
 
@@ -1956,7 +1961,7 @@ public class StreamTaskTest extends TestLogger {
             Configuration taskManagerConfig,
             Executor executor)
             throws Exception {
-
+        taskConfig.serializeAllConfigs();
         return new TestTaskBuilder(shuffleEnvironment)
                 .setTaskManagerConfig(taskManagerConfig)
                 .setInvokable(invokable)

@@ -213,15 +213,9 @@ def construct_hadoop_classpath(env):
 
 def construct_test_classpath():
     test_jar_patterns = [
-        "flink-runtime/target/flink-runtime*tests.jar",
-        "flink-streaming-java/target/flink-streaming-java*tests.jar",
-        "flink-formats/flink-csv/target/flink-csv*.jar",
-        "flink-formats/flink-sql-avro/target/flink-sql-avro*.jar",
-        "flink-formats/flink-json/target/flink-json*.jar",
+        "flink-python/target/test-dependencies/*",
         "flink-python/target/artifacts/testDataStream.jar",
         "flink-python/target/flink-python*-tests.jar",
-        ("flink-state-backends/flink-statebackend-rocksdb/target/"
-         "flink-statebackend-rocksdb*tests.jar"),
     ]
     test_jars = []
     flink_source_root = _find_flink_source_root()

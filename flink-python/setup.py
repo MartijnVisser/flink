@@ -273,11 +273,19 @@ try:
                 'pyflink.util',
                 'pyflink.datastream',
                 'pyflink.datastream.connectors',
+                'pyflink.datastream.formats',
                 'pyflink.common',
                 'pyflink.fn_execution',
                 'pyflink.fn_execution.beam',
                 'pyflink.fn_execution.datastream',
+                'pyflink.fn_execution.datastream.embedded',
+                'pyflink.fn_execution.datastream.process',
                 'pyflink.fn_execution.datastream.window',
+                'pyflink.fn_execution.embedded',
+                'pyflink.fn_execution.formats',
+                'pyflink.fn_execution.metrics',
+                'pyflink.fn_execution.metrics.embedded',
+                'pyflink.fn_execution.metrics.process',
                 'pyflink.fn_execution.table',
                 'pyflink.fn_execution.utils',
                 'pyflink.metrics',
@@ -304,7 +312,7 @@ try:
                         'cloudpickle==2.1.0', 'avro-python3>=1.8.1,!=1.9.2,<1.10.0',
                         'pytz>=2018.3', 'fastavro>=1.1.0,<1.4.8', 'requests>=2.26.0',
                         'protobuf<3.18',
-                        'pemja==0.1.5;'
+                        'pemja==0.2.4;'
                         'python_full_version >= "3.7" and platform_system != "Windows"',
                         'httplib2>=0.19.0,<=0.20.4', apache_flink_libraries_dependency]
 

@@ -438,6 +438,8 @@ function check_logs_for_exceptions {
    | grep -v "WARN  akka.remote.ReliableDeliverySupervisor" \
    | grep -v "RecipientUnreachableException" \
    | grep -v "SerializedCheckpointException.unwrap" \
+   | grep -v "ExecutionGraphException: The execution attempt" \
+   | grep -v "Cannot find task to fail for execution" \
    | grep -ic "exception" || true)
   if [[ ${exception_count} -gt 0 ]]; then
     echo "Found exception in log files; printing first 500 lines; see full logs for details:"
@@ -715,7 +717,7 @@ function wait_num_of_occurence_in_logs {
     echo "Waiting for text ${text} to appear ${number} of times in logs..."
 
     while : ; do
-      N=$(grep -o "${text}" $FLINK_LOG_DIR/*${logs}*.log* | wc -l)
+      N=$(grep -E -o "${text}" $FLINK_LOG_DIR/*${logs}*.log* | wc -l)
 
       if [ -z $N ]; then
         N=0

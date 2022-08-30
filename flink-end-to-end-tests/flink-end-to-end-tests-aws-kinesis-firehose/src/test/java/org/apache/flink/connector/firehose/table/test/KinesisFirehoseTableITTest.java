@@ -20,15 +20,19 @@ package org.apache.flink.connector.firehose.table.test;
 
 import org.apache.flink.api.common.time.Deadline;
 import org.apache.flink.connector.aws.testutils.LocalstackContainer;
+import org.apache.flink.connector.testframe.container.FlinkContainers;
+import org.apache.flink.connector.testframe.container.TestcontainersSettings;
+import org.apache.flink.test.util.SQLJobSubmission;
 import org.apache.flink.tests.util.TestUtils;
-import org.apache.flink.tests.util.flink.SQLJobSubmission;
-import org.apache.flink.tests.util.flink.container.FlinkContainers;
 import org.apache.flink.util.DockerImageVersions;
 import org.apache.flink.util.TestLogger;
+import org.apache.flink.util.jackson.JacksonMapperFactory;
 
-import com.fasterxml.jackson.annotation.JsonProperty;
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import org.apache.flink.shaded.jackson2.com.fasterxml.jackson.annotation.JsonCreator;
+import org.apache.flink.shaded.jackson2.com.fasterxml.jackson.annotation.JsonProperty;
+import org.apache.flink.shaded.jackson2.com.fasterxml.jackson.core.JsonProcessingException;
+import org.apache.flink.shaded.jackson2.com.fasterxml.jackson.databind.ObjectMapper;
+
 import org.assertj.core.api.Assertions;
 import org.junit.After;
 import org.junit.AfterClass;
@@ -78,6 +82,8 @@ public class KinesisFirehoseTableITTest extends TestLogger {
     private static final String BUCKET_NAME = "s3-firehose";
     private static final String STREAM_NAME = "s3-stream";
 
+    private static final ObjectMapper OBJECT_MAPPER = JacksonMapperFactory.createObjectMapper();
+
     private final Path sqlConnectorFirehoseJar = TestUtils.getResource(".*firehose.jar");
 
     private SdkHttpClient httpClient;
@@ -96,16 +102,19 @@ public class KinesisFirehoseTableITTest extends TestLogger {
                     .withNetwork(network)
                     .withNetworkAliases("localstack");
 
-    public static final FlinkContainers FLINK =
-            FlinkContainers.builder()
-                    .setEnvironmentVariable("AWS_CBOR_DISABLE", "1")
-                    .setEnvironmentVariable(
+    public static final TestcontainersSettings TESTCONTAINERS_SETTINGS =
+            TestcontainersSettings.builder()
+                    .environmentVariable("AWS_CBOR_DISABLE", "1")
+                    .environmentVariable(
                             "FLINK_ENV_JAVA_OPTS",
                             "-Dorg.apache.flink.kinesis-firehose.shaded.com.amazonaws.sdk.disableCertChecking -Daws.cborEnabled=false")
-                    .setNetwork(network)
-                    .setLogger(LOG)
+                    .network(network)
+                    .logger(LOG)
                     .dependsOn(mockFirehoseContainer)
                     .build();
+
+    public static final FlinkContainers FLINK =
+            FlinkContainers.builder().withTestcontainersSettings(TESTCONTAINERS_SETTINGS).build();
 
     @Before
     public void setup() throws Exception {
@@ -203,7 +212,7 @@ public class KinesisFirehoseTableITTest extends TestLogger {
 
     private <T> T fromJson(final String json, final Class<T> type) {
         try {
-            return new ObjectMapper().readValue(json, type);
+            return OBJECT_MAPPER.readValue(json, type);
         } catch (JsonProcessingException e) {
             throw new RuntimeException(String.format("Failed to deserialize json: %s", json), e);
         }
@@ -214,6 +223,7 @@ public class KinesisFirehoseTableITTest extends TestLogger {
         private final String code;
         private final int quantity;
 
+        @JsonCreator
         public Order(
                 @JsonProperty("code") final String code, @JsonProperty("quantity") int quantity) {
             this.code = code;

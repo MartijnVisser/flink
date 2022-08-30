@@ -35,7 +35,7 @@ This page describes the API calls available in Flink CEP. We start by presenting
 which allows you to specify the patterns that you want to detect in your stream, before presenting how you can
 [detect and act upon matching event sequences](#detecting-patterns). We then present the assumptions the CEP
 library makes when [dealing with lateness](#handling-lateness-in-event-time) in event time and how you can
-[migrate your job](#migrating-from-an-older-flink-versionpre-13) from an older Flink version to Flink-1.3.
+[migrate your job](#migrating-from-an-older-flink-versionpre-13) from an older Flink version to Flink-1.13.
 
 ## Getting Started
 
@@ -754,7 +754,7 @@ The contiguity will be applied between elements accepted into such a pattern.
 To illustrate the above with an example, a pattern sequence `"a b+ c"` (`"a"` followed by any(non-deterministic relaxed) sequence of one or more `"b"`'s followed by a `"c"`) with
 input `"a", "b1", "d1", "b2", "d2", "b3" "c"` will have the following results:
 
- 1. **Strict Contiguity**: `{a b3 c}` -- the `"d1"` after `"b1"` causes `"b1"` to be discarded, the same happens for `"b2"` because of `"d2"`.
+ 1. **Strict Contiguity**: `{a b1 c}`, `{a b2 c}`, `{a b3 c}` - there are no adjacent `"b"`s.
 
  2. **Relaxed Contiguity**: `{a b1 c}`, `{a b1 b2 c}`, `{a b1 b2 b3 c}`, `{a b2 c}`, `{a b2 b3 c}`, `{a b3 c}` - `"d"`'s are ignored.
 
@@ -1290,8 +1290,7 @@ Pattern.begin("patternName", skipStrategy)
 {{< /tabs >}}
 
 {{< hint info >}}
-For `SKIP_TO_FIRST`/`LAST` there are two options how to handle cases when there are no elements mapped to
-the specified variable. By default a NO_SKIP strategy will be used in this case. The other option is to throw exception in such situation.
+For `SKIP_TO_FIRST`/`LAST` there are two options how to handle cases when there are no events mapped to the PatternName. By default a NO_SKIP strategy will be used in this case. The other option is to throw exception in such situation.
 One can enable this option by:
 {{< /hint >}}
 

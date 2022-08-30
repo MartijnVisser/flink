@@ -21,17 +21,19 @@ package org.apache.flink.connector.kinesis.table.test;
 import org.apache.flink.api.common.time.Deadline;
 import org.apache.flink.connector.aws.testutils.AWSServicesTestUtils;
 import org.apache.flink.connector.aws.util.AWSGeneralUtil;
+import org.apache.flink.connector.testframe.container.FlinkContainers;
+import org.apache.flink.connector.testframe.container.TestcontainersSettings;
 import org.apache.flink.connectors.kinesis.testutils.KinesaliteContainer;
+import org.apache.flink.test.util.SQLJobSubmission;
 import org.apache.flink.tests.util.TestUtils;
-import org.apache.flink.tests.util.flink.SQLJobSubmission;
-import org.apache.flink.tests.util.flink.container.FlinkContainers;
 import org.apache.flink.util.DockerImageVersions;
+import org.apache.flink.util.jackson.JacksonMapperFactory;
 
 import org.apache.flink.shaded.guava30.com.google.common.collect.ImmutableList;
+import org.apache.flink.shaded.jackson2.com.fasterxml.jackson.annotation.JsonProperty;
+import org.apache.flink.shaded.jackson2.com.fasterxml.jackson.core.JsonProcessingException;
+import org.apache.flink.shaded.jackson2.com.fasterxml.jackson.databind.ObjectMapper;
 
-import com.fasterxml.jackson.annotation.JsonProperty;
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import org.assertj.core.api.Assertions;
 import org.junit.After;
 import org.junit.AfterClass;
@@ -77,6 +79,8 @@ public class KinesisStreamsTableApiIT {
     private static final String ORDERS_STREAM = "orders";
     private static final String INTER_CONTAINER_KINESALITE_ALIAS = "kinesalite";
     private static final String DEFAULT_FIRST_SHARD_NAME = "shardId-000000000000";
+    private static final ObjectMapper OBJECT_MAPPER = JacksonMapperFactory.createObjectMapper();
+
     private SdkHttpClient httpClient;
     private KinesisClient kinesisClient;
 
@@ -91,16 +95,19 @@ public class KinesisStreamsTableApiIT {
                     .withNetwork(network)
                     .withNetworkAliases(INTER_CONTAINER_KINESALITE_ALIAS);
 
-    public static final FlinkContainers FLINK =
-            FlinkContainers.builder()
-                    .setEnvironmentVariable("AWS_CBOR_DISABLE", "1")
-                    .setEnvironmentVariable(
+    public static final TestcontainersSettings TESTCONTAINERS_SETTINGS =
+            TestcontainersSettings.builder()
+                    .environmentVariable("AWS_CBOR_DISABLE", "1")
+                    .environmentVariable(
                             "FLINK_ENV_JAVA_OPTS",
                             "-Dorg.apache.flink.kinesis-streams.shaded.com.amazonaws.sdk.disableCertChecking -Daws.cborEnabled=false")
-                    .setNetwork(network)
-                    .setLogger(LOGGER)
+                    .network(network)
+                    .logger(LOGGER)
                     .dependsOn(KINESALITE)
                     .build();
+
+    public static final FlinkContainers FLINK =
+            FlinkContainers.builder().withTestcontainersSettings(TESTCONTAINERS_SETTINGS).build();
 
     @BeforeClass
     public static void setupFlink() throws Exception {
@@ -198,7 +205,7 @@ public class KinesisStreamsTableApiIT {
 
     private <T> T fromJson(final String json, final Class<T> type) {
         try {
-            return new ObjectMapper().readValue(json, type);
+            return OBJECT_MAPPER.readValue(json, type);
         } catch (JsonProcessingException e) {
             throw new RuntimeException("Test Failure.", e);
         }

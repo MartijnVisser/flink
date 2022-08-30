@@ -65,6 +65,7 @@ import javax.annotation.Nullable;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -132,6 +133,12 @@ public class Execution
      * The timestamps when state transitions occurred, indexed by {@link ExecutionState#ordinal()}.
      */
     private final long[] stateTimestamps;
+
+    /**
+     * The end timestamps when state transitions occurred, indexed by {@link
+     * ExecutionState#ordinal()}.
+     */
+    private final long[] stateEndTimestamps;
 
     private final Time rpcTimeout;
 
@@ -211,6 +218,7 @@ public class Execution
         this.rpcTimeout = checkNotNull(rpcTimeout);
 
         this.stateTimestamps = new long[ExecutionState.values().length];
+        this.stateEndTimestamps = new long[ExecutionState.values().length];
         markTimestamp(CREATED, startTimestamp);
 
         this.partitionInfos = new ArrayList<>(16);
@@ -312,10 +320,10 @@ public class Execution
         }
     }
 
-    public InputSplit getNextInputSplit() {
+    public Optional<InputSplit> getNextInputSplit() {
         final LogicalSlot slot = this.getAssignedResource();
         final String host = slot != null ? slot.getTaskManagerLocation().getHostname() : null;
-        return this.vertex.getNextInputSplit(host);
+        return this.vertex.getNextInputSplit(host, getAttemptNumber());
     }
 
     @Override
@@ -338,8 +346,18 @@ public class Execution
     }
 
     @Override
+    public long[] getStateEndTimestamps() {
+        return stateEndTimestamps;
+    }
+
+    @Override
     public long getStateTimestamp(ExecutionState state) {
         return this.stateTimestamps[state.ordinal()];
+    }
+
+    @Override
+    public long getStateEndTimestamp(ExecutionState state) {
+        return this.stateEndTimestamps[state.ordinal()];
     }
 
     public boolean isFinished() {
@@ -480,10 +498,7 @@ public class Execution
     }
 
     private static int getPartitionMaxParallelism(IntermediateResultPartition partition) {
-        return partition
-                .getIntermediateResult()
-                .getConsumerExecutionJobVertex()
-                .getMaxParallelism();
+        return partition.getIntermediateResult().getConsumersMaxParallelism();
     }
 
     /**
@@ -547,13 +562,13 @@ public class Execution
                     "Deploying {} (attempt #{}) with attempt id {} and vertex id {} to {} with allocation id {}",
                     vertex.getTaskNameWithSubtaskIndex(),
                     getAttemptNumber(),
-                    vertex.getCurrentExecutionAttempt().getAttemptId(),
+                    attemptId,
                     vertex.getID(),
                     getAssignedResourceLocation(),
                     slot.getAllocationId());
 
             final TaskDeploymentDescriptor deployment =
-                    TaskDeploymentDescriptorFactory.fromExecutionVertex(vertex)
+                    TaskDeploymentDescriptorFactory.fromExecution(this)
                             .createDeploymentDescriptor(
                                     slot.getAllocationId(),
                                     taskRestore,
@@ -701,31 +716,40 @@ public class Execution
     }
 
     private void updatePartitionConsumers(final IntermediateResultPartition partition) {
-        final Optional<ConsumerVertexGroup> consumerVertexGroup =
-                partition.getConsumerVertexGroupOptional();
-        if (!consumerVertexGroup.isPresent()) {
+        final List<ConsumerVertexGroup> consumerVertexGroups = partition.getConsumerVertexGroups();
+        if (consumerVertexGroups.isEmpty()) {
             return;
         }
-        for (ExecutionVertexID consumerVertexId : consumerVertexGroup.get()) {
-            final ExecutionVertex consumerVertex =
-                    vertex.getExecutionGraphAccessor().getExecutionVertexOrThrow(consumerVertexId);
-            final Execution consumer = consumerVertex.getCurrentExecutionAttempt();
-            final ExecutionState consumerState = consumer.getState();
+        final Set<ExecutionVertexID> updatedVertices = new HashSet<>();
+        for (ConsumerVertexGroup consumerVertexGroup : consumerVertexGroups) {
+            for (ExecutionVertexID consumerVertexId : consumerVertexGroup) {
+                if (updatedVertices.contains(consumerVertexId)) {
+                    continue;
+                }
 
-            // ----------------------------------------------------------------
-            // Consumer is recovering or running => send update message now
-            // Consumer is deploying => cache the partition info which would be
-            // sent after switching to running
-            // ----------------------------------------------------------------
-            if (consumerState == DEPLOYING
-                    || consumerState == RUNNING
-                    || consumerState == INITIALIZING) {
-                final PartitionInfo partitionInfo = createPartitionInfo(partition);
+                final ExecutionVertex consumerVertex =
+                        vertex.getExecutionGraphAccessor()
+                                .getExecutionVertexOrThrow(consumerVertexId);
+                final Execution consumer = consumerVertex.getCurrentExecutionAttempt();
+                final ExecutionState consumerState = consumer.getState();
 
-                if (consumerState == DEPLOYING) {
-                    consumerVertex.cachePartitionInfo(partitionInfo);
-                } else {
-                    consumer.sendUpdatePartitionInfoRpcCall(Collections.singleton(partitionInfo));
+                // ----------------------------------------------------------------
+                // Consumer is recovering or running => send update message now
+                // Consumer is deploying => cache the partition info which would be
+                // sent after switching to running
+                // ----------------------------------------------------------------
+                if (consumerState == DEPLOYING
+                        || consumerState == RUNNING
+                        || consumerState == INITIALIZING) {
+                    final PartitionInfo partitionInfo = createPartitionInfo(partition);
+                    updatedVertices.add(consumerVertexId);
+
+                    if (consumerState == DEPLOYING) {
+                        consumerVertex.cachePartitionInfo(partitionInfo);
+                    } else {
+                        consumer.sendUpdatePartitionInfoRpcCall(
+                                Collections.singleton(partitionInfo));
+                    }
                 }
             }
         }
@@ -1405,7 +1429,7 @@ public class Execution
 
         if (state == currentState) {
             state = targetState;
-            markTimestamp(targetState);
+            markTimestamp(currentState, targetState);
 
             if (error == null) {
                 LOG.info(
@@ -1454,12 +1478,18 @@ public class Execution
         }
     }
 
-    private void markTimestamp(ExecutionState state) {
-        markTimestamp(state, System.currentTimeMillis());
+    private void markTimestamp(ExecutionState currentState, ExecutionState targetState) {
+        long now = System.currentTimeMillis();
+        markTimestamp(targetState, now);
+        markEndTimestamp(currentState, now);
     }
 
     private void markTimestamp(ExecutionState state, long timestamp) {
         this.stateTimestamps[state.ordinal()] = timestamp;
+    }
+
+    private void markEndTimestamp(ExecutionState state, long timestamp) {
+        this.stateEndTimestamps[state.ordinal()] = timestamp;
     }
 
     public String getVertexWithAttempt() {

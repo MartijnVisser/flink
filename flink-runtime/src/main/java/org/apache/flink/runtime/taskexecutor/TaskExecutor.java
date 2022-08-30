@@ -691,14 +691,19 @@ public class TaskExecutor extends RpcEndpoint implements TaskExecutorGateway {
                             jobId,
                             tdd.getAllocationId(),
                             taskInformation.getJobVertexId(),
-                            tdd.getSubtaskIndex());
+                            tdd.getSubtaskIndex(),
+                            taskManagerConfiguration.getConfiguration(),
+                            jobInformation.getJobConfiguration());
 
             // TODO: Pass config value from user program and do overriding here.
             final StateChangelogStorage<?> changelogStorage;
             try {
                 changelogStorage =
                         changelogStoragesManager.stateChangelogStorageForJob(
-                                jobId, taskManagerConfiguration.getConfiguration(), jobGroup);
+                                jobId,
+                                taskManagerConfiguration.getConfiguration(),
+                                jobGroup,
+                                localStateStore.getLocalRecoveryConfig());
             } catch (IOException e) {
                 throw new TaskSubmissionException(e);
             }
@@ -711,6 +716,7 @@ public class TaskExecutor extends RpcEndpoint implements TaskExecutorGateway {
                             tdd.getExecutionAttemptId(),
                             localStateStore,
                             changelogStorage,
+                            changelogStoragesManager,
                             taskRestore,
                             checkpointResponder);
 
@@ -1350,7 +1356,8 @@ public class TaskExecutor extends RpcEndpoint implements TaskExecutorGateway {
                         hardwareDescription,
                         memoryConfiguration,
                         taskManagerConfiguration.getDefaultSlotResourceProfile(),
-                        taskManagerConfiguration.getTotalResourceProfile());
+                        taskManagerConfiguration.getTotalResourceProfile(),
+                        unresolvedTaskManagerLocation.getNodeId());
 
         resourceManagerConnection =
                 new TaskExecutorToResourceManagerConnection(
@@ -1805,7 +1812,7 @@ public class TaskExecutor extends RpcEndpoint implements TaskExecutorGateway {
                             closeJob(job, cause);
                         });
         taskManagerMetricGroup.removeJobMetricsGroup(jobId);
-        changelogStoragesManager.releaseStateChangelogStorageForJob(jobId);
+        changelogStoragesManager.releaseResourcesForJob(jobId);
         currentSlotOfferPerJob.remove(jobId);
     }
 

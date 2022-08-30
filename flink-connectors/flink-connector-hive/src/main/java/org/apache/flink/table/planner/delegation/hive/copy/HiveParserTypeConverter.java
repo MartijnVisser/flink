@@ -26,6 +26,7 @@ import org.apache.calcite.plan.RelOptCluster;
 import org.apache.calcite.rel.type.RelDataType;
 import org.apache.calcite.rel.type.RelDataTypeFactory;
 import org.apache.calcite.rel.type.RelDataTypeField;
+import org.apache.calcite.rel.type.StructKind;
 import org.apache.calcite.rex.RexBuilder;
 import org.apache.calcite.sql.SqlCollation;
 import org.apache.calcite.sql.SqlIntervalQualifier;
@@ -102,7 +103,7 @@ public class HiveParserTypeConverter {
                 convertedType = convert((UnionTypeInfo) type, dtFactory);
                 break;
         }
-        return convertedType;
+        return dtFactory.createTypeWithNullability(convertedType, true);
     }
 
     public static RelDataType convert(PrimitiveTypeInfo type, RelDataTypeFactory dtFactory) {
@@ -148,7 +149,7 @@ public class HiveParserTypeConverter {
                 convertedType = dtFactory.createSqlType(SqlTypeName.TIMESTAMP, 9);
                 break;
             case BINARY:
-                convertedType = dtFactory.createSqlType(SqlTypeName.BINARY);
+                convertedType = dtFactory.createSqlType(SqlTypeName.VARBINARY);
                 break;
             case DECIMAL:
                 DecimalTypeInfo dtInf = (DecimalTypeInfo) type;
@@ -216,7 +217,8 @@ public class HiveParserTypeConverter {
         for (TypeInfo ti : structType.getAllStructFieldTypeInfos()) {
             fTypes.add(convert(ti, dtFactory));
         }
-        return dtFactory.createStructType(fTypes, structType.getAllStructFieldNames());
+        return dtFactory.createStructType(
+                StructKind.PEEK_FIELDS_NO_EXPAND, fTypes, structType.getAllStructFieldNames());
     }
 
     private static RelDataType convert(UnionTypeInfo unionType, RelDataTypeFactory dtFactory)
@@ -295,6 +297,7 @@ public class HiveParserTypeConverter {
             case INTERVAL_SECOND:
                 return hiveShim.getIntervalDayTimeTypeInfo();
             case BINARY:
+            case VARBINARY:
                 return TypeInfoFactory.binaryTypeInfo;
             case DECIMAL:
                 return TypeInfoFactory.getDecimalTypeInfo(rType.getPrecision(), rType.getScale());
