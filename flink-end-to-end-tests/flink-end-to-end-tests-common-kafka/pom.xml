@@ -115,7 +115,7 @@ under the License.
 			<!-- https://mvnrepository.com/artifact/io.confluent/kafka-avro-serializer -->
 			<groupId>io.confluent</groupId>
 			<artifactId>kafka-avro-serializer</artifactId>
-			<version>6.2.2</version>
+			<version>6.2.7</version>
 			<scope>test</scope>
 		</dependency>
 
