@@ -42,7 +42,7 @@ import java.util.Arrays;
  * Test Temporal join of hive tables.
  *
  * <p>Defining primary key only supports since hive 3.0.0, skip other versions only test in hive
- * 3.1.1. To run this test, please use mvn command: mvn test -Phive-3.1.1
+ * 3.1.1. To run this test, please use mvn command: mvn test -Phive3
  * -Dtest=org.apache.flink.connectors.hive.HiveTemporalJoinITCase
  */
 public class HiveTemporalJoinITCase extends TableTestBase {
