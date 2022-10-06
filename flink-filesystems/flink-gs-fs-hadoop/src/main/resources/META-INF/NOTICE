@@ -17,13 +17,13 @@ This project bundles the following dependencies under the Apache Software Licens
 - com.google.apis:google-api-services-iamcredentials:v1-rev20210326-1.32.1
 - com.google.apis:google-api-services-storage:v1-rev20211201-1.32.1
 - com.google.auto.value:auto-value-annotations:1.9
-- com.google.cloud.bigdataoss:gcs-connector:hadoop3-2.2.4
+- com.google.cloud.bigdataoss:gcs-connector:hadoop3-2.2.8
 - com.google.cloud.bigdataoss:gcsio:2.2.4
-- com.google.cloud.bigdataoss:util-hadoop:hadoop3-2.2.4
+- com.google.cloud.bigdataoss:util-hadoop:hadoop3-2.2.8
 - com.google.cloud.bigdataoss:util:2.2.4
 - com.google.cloud:google-cloud-core-http:2.3.5
 - com.google.cloud:google-cloud-core:2.3.5
-- com.google.cloud:google-cloud-storage:2.2.3
+- com.google.cloud:google-cloud-storage:2.13.0
 - com.google.code.gson:gson:2.8.9
 - com.google.flogger:flogger-system-backend:0.7.1
 - com.google.flogger:flogger:0.7.1
