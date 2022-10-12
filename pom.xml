@@ -137,7 +137,7 @@ under the License.
 		invalid here -->
 		<scala.version>2.12.7</scala.version>
 		<scala.binary.version>2.12</scala.binary.version>
-		<chill.version>0.7.6</chill.version>
+		<chill.version>0.10.0</chill.version>
 		<!-- keep FlinkContainersBuilder#buildZookeeperContainer() in sync -->
 		<zookeeper.version>3.5.9</zookeeper.version>
 		<curator.version>5.2.0</curator.version>
