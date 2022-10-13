@@ -128,7 +128,7 @@ under the License.
 			<dependency>
 				<groupId>com.amazonaws</groupId>
 				<artifactId>amazon-kinesis-client</artifactId>
-				<version>1.14.7</version>
+				<version>1.14.8</version>
 			</dependency>
 		</dependencies>
 	</dependencyManagement>
