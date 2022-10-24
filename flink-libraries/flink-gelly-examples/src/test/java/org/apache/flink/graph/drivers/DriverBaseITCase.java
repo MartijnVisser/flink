@@ -203,7 +203,7 @@ public abstract class DriverBaseITCase extends MultipleProgramsTestBase {
         switch (mode) {
             case CLUSTER:
             case COLLECTION:
-                args = ArrayUtils.add(args, "--__disable_object_reuse");
+                args = ArrayUtils.insert(0, args, "--__disable_object_reuse");
                 break;
 
             case CLUSTER_OBJECT_REUSE:
