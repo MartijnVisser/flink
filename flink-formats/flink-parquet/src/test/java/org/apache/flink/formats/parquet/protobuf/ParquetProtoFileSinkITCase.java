@@ -19,10 +19,10 @@
 package org.apache.flink.formats.parquet.protobuf;
 
 import org.apache.flink.api.common.typeinfo.TypeInformation;
+import org.apache.flink.connector.file.sink.FileSink;
 import org.apache.flink.core.fs.Path;
 import org.apache.flink.streaming.api.datastream.DataStream;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
-import org.apache.flink.streaming.api.functions.sink.filesystem.StreamingFileSink;
 import org.apache.flink.streaming.api.functions.sink.filesystem.bucketassigners.UniqueBucketAssigner;
 import org.apache.flink.streaming.util.FiniteTestSource;
 import org.apache.flink.test.util.AbstractTestBase;
@@ -46,10 +46,10 @@ import static org.apache.flink.formats.parquet.protobuf.SimpleRecord.SimpleProto
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * Simple integration test case for writing bulk encoded files with the {@link StreamingFileSink}
- * with Parquet.
+ * Simple integration test case for writing bulk encoded files with the {@link FileSink} with
+ * Parquet.
  */
-public class ParquetProtoStreamingFileSinkITCase extends AbstractTestBase {
+public class ParquetProtoFileSinkITCase extends AbstractTestBase {
 
     @Rule public final Timeout timeoutPerTest = Timeout.seconds(20);
 
@@ -71,13 +71,13 @@ public class ParquetProtoStreamingFileSinkITCase extends AbstractTestBase {
                 env.addSource(
                         new FiniteTestSource<>(data), TypeInformation.of(SimpleProtoRecord.class));
 
-        stream.addSink(
-                StreamingFileSink.forBulkFormat(
+        FileSink<SimpleProtoRecord> sink =
+                FileSink.forBulkFormat(
                                 Path.fromLocalFile(folder),
                                 ParquetProtoWriters.forType(SimpleProtoRecord.class))
                         .withBucketAssigner(new UniqueBucketAssigner<>("test"))
-                        .build());
-
+                        .build();
+        stream.sinkTo(sink);
         env.execute();
 
         validateResults(folder, data);
