@@ -22,6 +22,7 @@ import org.apache.flink.api.common.functions.MapFunction;
 import org.apache.flink.api.common.typeinfo.TypeHint;
 import org.apache.flink.api.common.typeinfo.TypeInformation;
 import org.apache.flink.api.java.tuple.Tuple2;
+import org.apache.flink.connector.file.sink.FileSink;
 import org.apache.flink.core.fs.Path;
 import org.apache.flink.streaming.api.datastream.DataStream;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
@@ -81,8 +82,8 @@ public class SequenceStreamingFileSinkITCase extends AbstractTestBase {
                                 return new Tuple2<>(new LongWritable(value.f0), new Text(value.f1));
                             }
                         })
-                .addSink(
-                        StreamingFileSink.forBulkFormat(
+                .sinkTo(
+                        FileSink.forBulkFormat(
                                         testPath,
                                         new SequenceFileWriterFactory<>(
                                                 configuration,
