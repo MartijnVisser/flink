@@ -19,13 +19,13 @@
 package org.apache.flink.orc.writer;
 
 import org.apache.flink.api.common.typeinfo.TypeInformation;
+import org.apache.flink.connector.file.sink.FileSink;
 import org.apache.flink.core.fs.Path;
 import org.apache.flink.orc.data.Record;
 import org.apache.flink.orc.util.OrcBulkWriterTestUtil;
 import org.apache.flink.orc.vector.RecordVectorizer;
 import org.apache.flink.streaming.api.datastream.DataStream;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
-import org.apache.flink.streaming.api.functions.sink.filesystem.StreamingFileSink;
 import org.apache.flink.streaming.api.functions.sink.filesystem.bucketassigners.UniqueBucketAssigner;
 import org.apache.flink.streaming.util.FiniteTestSource;
 import org.apache.flink.util.TestLogger;
@@ -66,8 +66,8 @@ public class OrcBulkWriterITCase extends TestLogger {
         DataStream<Record> stream =
                 env.addSource(new FiniteTestSource<>(testData), TypeInformation.of(Record.class));
         stream.map(str -> str)
-                .addSink(
-                        StreamingFileSink.forBulkFormat(new Path(outDir.toURI()), factory)
+                .sinkTo(
+                        FileSink.forBulkFormat(new Path(outDir.toURI()), factory)
                                 .withBucketAssigner(new UniqueBucketAssigner<>("test"))
                                 .build());
 
