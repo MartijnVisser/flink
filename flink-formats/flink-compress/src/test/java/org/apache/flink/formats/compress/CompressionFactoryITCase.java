@@ -19,6 +19,7 @@
 package org.apache.flink.formats.compress;
 
 import org.apache.flink.api.common.typeinfo.TypeInformation;
+import org.apache.flink.connector.file.sink.FileSink;
 import org.apache.flink.core.fs.Path;
 import org.apache.flink.formats.compress.extractor.DefaultExtractor;
 import org.apache.flink.streaming.api.datastream.DataStream;
@@ -73,8 +74,8 @@ class CompressionFactoryITCase {
                 env.addSource(new FiniteTestSource<>(testData), TypeInformation.of(String.class));
 
         stream.map(str -> str)
-                .addSink(
-                        StreamingFileSink.forBulkFormat(
+                .sinkTo(
+                        FileSink.forBulkFormat(
                                         testPath,
                                         CompressWriters.forExtractor(new DefaultExtractor<String>())
                                                 .withHadoopCompression(TEST_CODEC_NAME))
