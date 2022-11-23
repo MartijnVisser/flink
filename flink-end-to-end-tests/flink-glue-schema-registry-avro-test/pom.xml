@@ -123,7 +123,7 @@ under the License.
 			<dependency>
 				<groupId>com.github.docker-java</groupId>
 				<artifactId>docker-java-transport</artifactId>
-				<version>3.2.13</version>
+				<version>3.2.14</version>
 			</dependency>
 			<dependency>
 				<groupId>com.amazonaws</groupId>
