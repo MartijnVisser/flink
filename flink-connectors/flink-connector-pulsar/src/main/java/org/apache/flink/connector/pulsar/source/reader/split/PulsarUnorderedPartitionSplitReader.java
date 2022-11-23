@@ -20,10 +20,10 @@ package org.apache.flink.connector.pulsar.source.reader.split;
 
 import org.apache.flink.annotation.Internal;
 import org.apache.flink.connector.pulsar.source.config.SourceConfiguration;
-import org.apache.flink.connector.pulsar.source.reader.deserializer.PulsarDeserializationSchema;
 import org.apache.flink.connector.pulsar.source.reader.source.PulsarUnorderedSourceReader;
 import org.apache.flink.connector.pulsar.source.split.PulsarPartitionSplit;
 import org.apache.flink.connector.pulsar.source.split.PulsarPartitionSplitState;
+import org.apache.flink.metrics.groups.SourceReaderMetricGroup;
 
 import org.apache.pulsar.client.admin.PulsarAdmin;
 import org.apache.pulsar.client.api.Consumer;
@@ -52,11 +52,9 @@ import static org.apache.flink.connector.pulsar.common.utils.PulsarTransactionUt
 /**
  * The split reader a given {@link PulsarPartitionSplit}, it would be closed once the {@link
  * PulsarUnorderedSourceReader} is closed.
- *
- * @param <OUT> the type of the pulsar source message that would be serialized to downstream.
  */
 @Internal
-public class PulsarUnorderedPartitionSplitReader<OUT> extends PulsarPartitionSplitReaderBase<OUT> {
+public class PulsarUnorderedPartitionSplitReader extends PulsarPartitionSplitReaderBase {
     private static final Logger LOG =
             LoggerFactory.getLogger(PulsarUnorderedPartitionSplitReader.class);
 
@@ -68,9 +66,9 @@ public class PulsarUnorderedPartitionSplitReader<OUT> extends PulsarPartitionSpl
             PulsarClient pulsarClient,
             PulsarAdmin pulsarAdmin,
             SourceConfiguration sourceConfiguration,
-            PulsarDeserializationSchema<OUT> deserializationSchema,
+            SourceReaderMetricGroup metricGroup,
             TransactionCoordinatorClient coordinatorClient) {
-        super(pulsarClient, pulsarAdmin, sourceConfiguration, deserializationSchema);
+        super(pulsarClient, pulsarAdmin, sourceConfiguration, metricGroup);
 
         this.coordinatorClient = coordinatorClient;
     }
@@ -111,9 +109,6 @@ public class PulsarUnorderedPartitionSplitReader<OUT> extends PulsarPartitionSpl
         if (sourceConfiguration.isEnableAutoAcknowledgeMessage()) {
             sneakyClient(() -> pulsarConsumer.acknowledge(message));
         }
-
-        // Release message
-        message.release();
     }
 
     @Override

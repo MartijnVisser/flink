@@ -545,6 +545,13 @@ under the License.
 				<groupId>org.xerial.snappy</groupId>
 				<artifactId>snappy-java</artifactId>
 				<version>1.1.8.3</version>
+				<exclusions>
+					<exclusion>
+						<!-- Causes unnecessary dependency convergence errors; see MENFORCER-437 -->
+						<groupId>org.osgi</groupId>
+						<artifactId>org.osgi.core</artifactId>
+					</exclusion>
+				</exclusions>
 			</dependency>
 
 			<dependency>
@@ -711,6 +718,13 @@ under the License.
 				<groupId>org.apache.commons</groupId>
 				<artifactId>commons-compress</artifactId>
 				<version>1.21</version>
+				<exclusions>
+					<exclusion>
+						<!-- Causes unnecessary dependency convergence errors; see MENFORCER-437 -->
+						<groupId>org.osgi</groupId>
+						<artifactId>org.osgi.core</artifactId>
+					</exclusion>
+				</exclusions>
 			</dependency>
 
 			<!-- Managed dependency required for HBase in flink-connector-hbase -->
@@ -992,6 +1006,7 @@ under the License.
 							<configuration>
 								<additionalJOptions>
 									<additionalJOption>--add-exports=java.base/sun.net.util=ALL-UNNAMED</additionalJOption>
+									<additionalJOption>--add-exports=java.rmi/sun.rmi.registry=ALL-UNNAMED</additionalJOption>
 								</additionalJOptions>
 							</configuration>
 						</plugin>
@@ -1198,13 +1213,6 @@ under the License.
 				</plugins>
 			</build>
 		</profile>
-
-		<profile>
-            <!-- Kept for backwards compatiblity, the doc buildbot expects
-                 this profile to exist.-->
-			<id>aggregate-scaladoc</id>
-		</profile>
-
 
 		<profile>
 			<!-- used for SNAPSHOT and regular releases -->
@@ -1481,7 +1489,7 @@ under the License.
 						<exclude>flink-table/flink-table-planner/src/test/resources/json/*.json</exclude>
 						<exclude>flink-yarn/src/test/resources/krb5.keytab</exclude>
 						<exclude>flink-end-to-end-tests/test-scripts/test-data/**</exclude>
-						<exclude>flink-end-to-end-tests/test-scripts/docker-hadoop-secure-cluster/config/keystore.jks</exclude>
+						<exclude>flink-end-to-end-tests/test-scripts/docker-hadoop-secure-cluster/hadoop/config/keystore.jks</exclude>
 						<exclude>flink-connectors/flink-connector-kafka/src/test/resources/**</exclude>
 						<exclude>flink-connectors/flink-connector-hive/src/test/resources/**</exclude>
 						<exclude>flink-end-to-end-tests/flink-tpcds-test/tpcds-tool/answer_set/*</exclude>
@@ -2011,7 +2019,7 @@ under the License.
 				<plugin>
 					<groupId>org.apache.maven.plugins</groupId>
 					<artifactId>maven-enforcer-plugin</artifactId>
-					<version>3.0.0-M1</version>
+					<version>3.1.0</version>
 				</plugin>
 
 				<plugin>
@@ -2125,6 +2133,8 @@ under the License.
 								<exclude>@org.apache.flink.annotation.PublicEvolving</exclude>
 								<exclude>@org.apache.flink.annotation.Internal</exclude>
 								<!-- MARKER: start exclusions; these will be wiped by tools/releasing/update_japicmp_configuration.sh -->
+								<!-- UnionSerializerConfigSnapshot was a PublicEvolving and Deprecated class that has been removed, embedded inside a Public CoGroupedStreams class, triggering this false failure -->
+								<exclude>org.apache.flink.streaming.api.datastream.CoGroupedStreams$UnionSerializerConfigSnapshot</exclude>
 								<!-- MARKER: end exclusions -->
 							</excludes>
 							<accessModifier>public</accessModifier>

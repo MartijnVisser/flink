@@ -406,9 +406,18 @@ class HsResultPartitionTest {
     @Test
     void testAvailability() throws Exception {
         final int numBuffers = 2;
+        final int numSubpartitions = 1;
 
         BufferPool bufferPool = globalPool.createBufferPool(numBuffers, numBuffers);
-        HsResultPartition partition = createHsResultPartition(1, bufferPool);
+        HsResultPartition partition =
+                createHsResultPartition(
+                        numSubpartitions,
+                        bufferPool,
+                        HybridShuffleConfiguration.builder(
+                                        numSubpartitions, readBufferPool.getNumBuffersPerRequest())
+                                // Do not return buffer to bufferPool when memory is insufficient.
+                                .setFullStrategyReleaseBufferRatio(0)
+                                .build());
 
         partition.emitRecord(ByteBuffer.allocate(bufferSize * numBuffers), 0);
         assertThat(partition.isAvailable()).isFalse();
