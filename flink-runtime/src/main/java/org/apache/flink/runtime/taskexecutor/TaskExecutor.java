@@ -71,6 +71,7 @@ import org.apache.flink.runtime.jobmaster.ResourceManagerAddress;
 import org.apache.flink.runtime.leaderretrieval.LeaderRetrievalListener;
 import org.apache.flink.runtime.leaderretrieval.LeaderRetrievalService;
 import org.apache.flink.runtime.memory.MemoryManager;
+import org.apache.flink.runtime.memory.SharedResources;
 import org.apache.flink.runtime.messages.Acknowledge;
 import org.apache.flink.runtime.messages.TaskThreadInfoResponse;
 import org.apache.flink.runtime.messages.ThreadInfoSample;
@@ -93,7 +94,7 @@ import org.apache.flink.runtime.rpc.FatalErrorHandler;
 import org.apache.flink.runtime.rpc.RpcEndpoint;
 import org.apache.flink.runtime.rpc.RpcService;
 import org.apache.flink.runtime.rpc.RpcServiceUtils;
-import org.apache.flink.runtime.security.token.DelegationTokenUpdater;
+import org.apache.flink.runtime.security.token.hadoop.HadoopDelegationTokenUpdater;
 import org.apache.flink.runtime.shuffle.ShuffleDescriptor;
 import org.apache.flink.runtime.shuffle.ShuffleEnvironment;
 import org.apache.flink.runtime.state.TaskExecutorLocalStateStoresManager;
@@ -227,6 +228,9 @@ public class TaskExecutor extends RpcEndpoint implements TaskExecutorGateway {
 
     private final Executor ioExecutor;
 
+    /** {@link MemoryManager} shared across all tasks. */
+    private final SharedResources sharedResources;
+
     // --------- task slot allocation table -----------
 
     private final TaskSlotTable<Task> taskSlotTable;
@@ -342,6 +346,8 @@ public class TaskExecutor extends RpcEndpoint implements TaskExecutorGateway {
 
         this.slotAllocationSnapshotPersistenceService =
                 taskExecutorServices.getSlotAllocationSnapshotPersistenceService();
+
+        this.sharedResources = taskExecutorServices.getSharedResources();
     }
 
     private HeartbeatManager<Void, TaskExecutorHeartbeatPayload>
@@ -565,11 +571,17 @@ public class TaskExecutor extends RpcEndpoint implements TaskExecutorGateway {
             }
         }
 
-        Collection<SampleableTask> sampleableTasks =
-                tasks.stream().map(SampleableTaskAdapter::fromTask).collect(Collectors.toList());
+        Map<Long, ExecutionAttemptID> sampleableTasks =
+                tasks.stream()
+                        .collect(
+                                Collectors.toMap(
+                                        task -> task.getExecutingThread().getId(),
+                                        Task::getExecutionId));
 
-        final CompletableFuture<Collection<ThreadInfoSample>> stackTracesFuture =
-                threadInfoSampleService.requestThreadInfoSamples(sampleableTasks, requestParams);
+        final CompletableFuture<Map<ExecutionAttemptID, Collection<ThreadInfoSample>>>
+                stackTracesFuture =
+                        threadInfoSampleService.requestThreadInfoSamples(
+                                sampleableTasks, requestParams);
 
         return stackTracesFuture.thenApply(TaskThreadInfoResponse::new);
     }
@@ -737,6 +749,7 @@ public class TaskExecutor extends RpcEndpoint implements TaskExecutorGateway {
                             tdd.getProducedPartitions(),
                             tdd.getInputGates(),
                             memoryManager,
+                            sharedResources,
                             taskExecutorServices.getIOManager(),
                             taskExecutorServices.getShuffleEnvironment(),
                             taskExecutorServices.getKvStateService(),
@@ -1333,7 +1346,7 @@ public class TaskExecutor extends RpcEndpoint implements TaskExecutorGateway {
         }
 
         try {
-            DelegationTokenUpdater.addCurrentUserCredentials(tokens);
+            HadoopDelegationTokenUpdater.addCurrentUserCredentials(tokens);
             return CompletableFuture.completedFuture(Acknowledge.get());
         } catch (Throwable t) {
             log.error("Could not update delegation tokens.", t);
@@ -2369,10 +2382,11 @@ public class TaskExecutor extends RpcEndpoint implements TaskExecutorGateway {
             final ClusterInformation clusterInformation = success.getClusterInformation();
             final ResourceManagerGateway resourceManagerGateway = connection.getTargetGateway();
 
-            if (success.getInitialTokens() != null) {
+            byte[] tokens = success.getInitialTokens();
+            if (tokens != null) {
                 try {
                     log.info("Receive initial delegation tokens from resource manager");
-                    DelegationTokenUpdater.addCurrentUserCredentials(success.getInitialTokens());
+                    HadoopDelegationTokenUpdater.addCurrentUserCredentials(tokens);
                 } catch (Throwable t) {
                     log.error("Could not update delegation tokens.", t);
                     ExceptionUtils.rethrowIfFatalError(t);
