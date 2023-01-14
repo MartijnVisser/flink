@@ -1126,7 +1126,7 @@ under the License.
 			<plugin>
 				<groupId>org.antlr</groupId>
 				<artifactId>antlr3-maven-plugin</artifactId>
-				<version>3.5.2</version>
+				<version>3.5.3</version>
 				<executions>
 					<execution>
 						<goals>
@@ -1254,7 +1254,7 @@ under the License.
 					<!-- Bump arrow netty dependency -->
 					<groupId>io.netty</groupId>
 					<artifactId>netty-buffer</artifactId>
-					<version>4.1.46.Final</version>
+					<version>4.1.87.Final</version>
 					<scope>provided</scope>
 				</dependency>
 
@@ -1262,7 +1262,7 @@ under the License.
 					<!-- Bump arrow netty dependency -->
 					<groupId>io.netty</groupId>
 					<artifactId>netty-common</artifactId>
-					<version>4.1.46.Final</version>
+					<version>4.1.87.Final</version>
 					<scope>provided</scope>
 				</dependency>
 			</dependencies>

@@ -81,7 +81,7 @@ under the License.
 		<dependency>
 			<groupId>org.antlr</groupId>
 			<artifactId>antlr-runtime</artifactId>
-			<version>3.5.2</version>
+			<version>3.5.3</version>
 		</dependency>
 
 		<!-- hadoop dependency to make the copied code compile -->

@@ -32,7 +32,7 @@ under the License.
 	<packaging>jar</packaging>
 
 	<properties>
-		<aws.sdk.version>1.12.276</aws.sdk.version>
+		<aws.sdk.version>1.12.385</aws.sdk.version>
 		<aws.sdkv2.version>2.17.247</aws.sdkv2.version>
 		<kotlin.version>1.7.10</kotlin.version>
 	</properties>
@@ -84,7 +84,7 @@ under the License.
 			<dependency>
 				<groupId>com.google.protobuf</groupId>
 				<artifactId>protobuf-java</artifactId>
-				<version>3.21.7</version>
+				<version>3.21.12</version>
 			</dependency>
 			<dependency>
 				<groupId>com.google.guava</groupId>
@@ -139,22 +139,22 @@ under the License.
 			<dependency>
 				<groupId>com.github.docker-java</groupId>
 				<artifactId>docker-java-api</artifactId>
-				<version>3.2.13</version>
+				<version>3.2.14</version>
 			</dependency>
 			<dependency>
 				<groupId>com.github.docker-java</groupId>
 				<artifactId>docker-java-transport-zerodep</artifactId>
-				<version>3.2.13</version>
+				<version>3.2.14</version>
 			</dependency>
 			<dependency>
 				<groupId>com.github.docker-java</groupId>
 				<artifactId>docker-java-transport</artifactId>
-				<version>3.2.13</version>
+				<version>3.2.14</version>
 			</dependency>
 			<dependency>
 				<groupId>com.amazonaws</groupId>
 				<artifactId>amazon-kinesis-client</artifactId>
-				<version>1.14.7</version>
+				<version>1.14.9</version>
 			</dependency>
 		</dependencies>
 	</dependencyManagement>
