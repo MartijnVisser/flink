@@ -66,7 +66,7 @@ function set_mirror_config {
 		NPM_PROXY_PROFILE_ACTIVATION="-Duse-alibaba-mirror"
 	else
 		echo "Using Google mirror"
-		MAVEN_MIRROR_CONFIG_FILE="$CI_DIR/google-mirror-settings.xml"
+		MAVEN_MIRROR_CONFIG_FILE=""
 	fi
 }
 
@@ -106,4 +106,12 @@ MVN_GLOBAL_OPTIONS_WITHOUT_MIRROR+="$PROFILE "
 
 export MVN_GLOBAL_OPTIONS="${MVN_GLOBAL_OPTIONS_WITHOUT_MIRROR} "
 # use google mirror everywhere
-MVN_GLOBAL_OPTIONS+="--settings $MAVEN_MIRROR_CONFIG_FILE ${NPM_PROXY_PROFILE_ACTIVATION} "
+MVN_GLOBAL_OPTIONS+="${NPM_PROXY_PROFILE_ACTIVATION} "
+
+echo "BUILDING flink-shaded 17-SNAPSHOT"
+git clone https://github.com/MartijnVisser/flink-shaded.git
+cd flink-shaded
+git checkout FLINK-31719-netty-4.1.91
+run_mvn clean install -Dshade-sources
+cd ..
+rm -rf flink-shaded
