@@ -21,9 +21,10 @@ package org.apache.flink.util;
 import org.apache.flink.annotation.Internal;
 import org.apache.flink.configuration.IllegalConfigurationException;
 
+import org.apache.flink.shaded.guava30.com.google.common.net.InetAddresses;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import sun.net.util.IPAddressUtil;
 
 import java.io.IOException;
 import java.net.Inet4Address;
@@ -197,17 +198,16 @@ public class NetUtils {
             host = host.trim().toLowerCase();
             if (host.startsWith("[") && host.endsWith("]")) {
                 String address = host.substring(1, host.length() - 1);
-                if (IPAddressUtil.isIPv6LiteralAddress(address)) {
+                if (InetAddresses.isInetAddress(address)) {
                     host = address;
                 }
             }
         }
 
-        // normalize and valid address
-        if (IPAddressUtil.isIPv6LiteralAddress(host)) {
-            byte[] ipV6Address = IPAddressUtil.textToNumericFormatV6(host);
-            host = getIPv6UrlRepresentation(ipV6Address);
-        } else if (!IPAddressUtil.isIPv4LiteralAddress(host)) {
+        // validate address
+        if (InetAddresses.isInetAddress(host)) {
+            host = String.valueOf(InetAddresses.forString(host));
+        } else if (!host.startsWith(".") || (!host.endsWith(".") || !host.contains(":"))) {
             try {
                 // We don't allow these in hostnames
                 Preconditions.checkArgument(!host.startsWith("."));
