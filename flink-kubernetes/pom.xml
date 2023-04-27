@@ -32,8 +32,20 @@ under the License.
 
 	<properties>
 		<kubernetes.client.version>5.12.4</kubernetes.client.version>
+		<kotlin.version>1.6.20</kotlin.version>
 	</properties>
 
+	<dependencyManagement>
+		<dependencies>
+			<dependency>
+				<groupId>org.jetbrains.kotlin</groupId>
+				<artifactId>kotlin-bom</artifactId>
+				<version>${kotlin.version}</version>
+				<type>pom</type>
+				<scope>import</scope>
+			</dependency>
+		</dependencies>
+	</dependencyManagement>
 	<dependencies>
 
 		<!-- core dependencies  -->
@@ -115,7 +127,8 @@ under the License.
 									<include>com.fasterxml.jackson.dataformat:jackson-dataformat-yaml</include>
 									<include>com.fasterxml.jackson.datatype:jackson-datatype-jsr310</include>
 									<include>com.squareup.okhttp3:*</include>
-									<include>com.squareup.okio:okio</include>
+									<include>com.squareup.okio:*</include>
+									<include>org.jetbrains.kotlin:*</include>
 									<include>org.yaml:*</include>
 									<include>dk.brics.automaton:*</include>
 
@@ -158,6 +171,10 @@ under the License.
 								<relocation>
 									<pattern>okio</pattern>
 									<shadedPattern>org.apache.flink.kubernetes.shaded.okio</shadedPattern>
+								</relocation>
+								<relocation>
+									<pattern>kotlin</pattern>
+									<shadedPattern>org.apache.flink.kubernetes.shaded.kotlin</shadedPattern>
 								</relocation>
 								<relocation>
 									<pattern>org.yaml</pattern>
