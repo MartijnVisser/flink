@@ -320,20 +320,24 @@ public class Fabric8FlinkKubeClientTest extends KubernetesClientTestBase {
                 KubernetesConfigOptions.REST_SERVICE_EXPOSED_NODE_PORT_ADDRESS_TYPE, addressType);
         final List<String[]> internalAddresses =
                 Arrays.asList(
-                        new String[]{"InternalIP", "10.0.0.1", "true"},
-                        new String[]{"InternalIP", "10.0.0.2", "false"},
-                        new String[]{"InternalIP", "10.0.0.3", " "},
-                        new String[]{"InternalIP", "2409:8c20:1833:2000::afd:ab7a", "true"},
-                        new String[]{"InternalIP", "2409:8c20:1833:2000::afd:ab7b", "false"},
-                        new String[]{"InternalIP", "2409:8c20:1833:2000::afd:ab7c", " "});
+                        new String[] {"InternalIP", "10.0.0.1", "true"},
+                        new String[] {"InternalIP", "10.0.0.2", "false"},
+                        new String[] {"InternalIP", "10.0.0.3", " "},
+                        new String[] {"InternalIP", "2409:8c20:1833:2000::afd:ab7a", "true"},
+                        new String[] {"InternalIP", "2409:8c20:1833:2000::afd:ab7b", "false"},
+                        new String[] {"InternalIP", "2409:8c20:1833:2000::afd:ab7c", " "});
         final List<String[]> externalAddresses =
                 Arrays.asList(
-                        new String[]{"ExternalIP", "7.7.7.7", "true"},
-                        new String[]{"ExternalIP", "8.8.8.8", "false"},
-                        new String[]{"ExternalIP", "9.9.9.9", " "},
-                        new String[]{"ExternalIP", "fd83:fb51:44b4:1e1:a5c9:b9dc:7ff:2170", "true"},
-                        new String[]{"ExternalIP", "fd83:fb51:44b4:1e1:a5c9:b9dc:7ff:2171", "false"},
-                        new String[]{"ExternalIP", "fd83:fb51:44b4:1e1:a5c9:b9dc:7ff:2173", " "});
+                        new String[] {"ExternalIP", "7.7.7.7", "true"},
+                        new String[] {"ExternalIP", "8.8.8.8", "false"},
+                        new String[] {"ExternalIP", "9.9.9.9", " "},
+                        new String[] {
+                            "ExternalIP", "fd83:fb51:44b4:1e1:a5c9:b9dc:7ff:2170", "true"
+                        },
+                        new String[] {
+                            "ExternalIP", "fd83:fb51:44b4:1e1:a5c9:b9dc:7ff:2171", "false"
+                        },
+                        new String[] {"ExternalIP", "fd83:fb51:44b4:1e1:a5c9:b9dc:7ff:2173", " "});
         final List<String[]> addresses = new ArrayList<>();
         addresses.addAll(internalAddresses);
         addresses.addAll(externalAddresses);
