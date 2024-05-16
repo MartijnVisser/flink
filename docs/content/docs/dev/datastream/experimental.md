@@ -66,7 +66,7 @@ DataStreamSource<Integer> source = ...;
 DataStreamUtils.reinterpretAsKeyedStream(source, (in) -> in, TypeInformation.of(Integer.class))
     .window(TumblingEventTimeWindows.of(Time.seconds(1)))
     .reduce((a, b) -> a + b)
-    .addSink(new DiscardingSink<>());
+    .sinkTo(new DiscardingSink<>());
 env.execute();
 ```
 {{< /tab >}}
@@ -78,7 +78,7 @@ val source = ...
 new DataStreamUtils(source).reinterpretAsKeyedStream((in) => in)
   .window(TumblingEventTimeWindows.of(Time.seconds(1)))
   .reduce((a, b) => a + b)
-  .addSink(new DiscardingSink[Int])
+  .sinkTo(new DiscardingSink[Int])
 env.execute()
 ```
 {{< /tab >}}
