@@ -17,7 +17,7 @@
 
 package org.apache.flink.streaming.api.functions.sink;
 
-import org.apache.flink.annotation.PublicEvolving;
+import org.apache.flink.annotation.Public;
 import org.apache.flink.api.common.SupportsConcurrentExecutionAttempts;
 import org.apache.flink.api.common.functions.util.PrintSinkOutputWriter;
 import org.apache.flink.api.connector.sink2.Sink;
@@ -40,7 +40,7 @@ import java.io.IOException;
  *
  * @param <IN> Input record type
  */
-@PublicEvolving
+@Public
 public class PrintSink<IN> implements Sink<IN>, SupportsConcurrentExecutionAttempts {
 
     private static final long serialVersionUID = 1L;
