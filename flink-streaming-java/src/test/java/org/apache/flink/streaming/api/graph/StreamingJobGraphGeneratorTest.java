@@ -1752,11 +1752,11 @@ class StreamingJobGraphGeneratorTest {
                 .isEqualTo(
                         "test source\n"
                                 + ":- x + 1\n"
-                                + ":  :- first print of map1\n"
-                                + ":  +- second print of map1\n"
+                                + ":  :- first print of map1: Writer\n"
+                                + ":  +- second print of map1: Writer\n"
                                 + "+- x + 2\n"
-                                + "   :- first print of map2\n"
-                                + "   +- second print of map2\n");
+                                + "   :- first print of map2: Writer\n"
+                                + "   +- second print of map2: Writer\n");
     }
 
     @Test
@@ -1789,7 +1789,7 @@ class StreamingJobGraphGeneratorTest {
         assertThat(allVertices).hasSize(1);
         assertThat(allVertices[0].getOperatorPrettyName())
                 .isEqualTo(
-                        "test source -> (x + 1 -> (first print of map1 , second print of map1) , x + 2 -> (first print of map2 , second print of map2))");
+                        "test source -> (x + 1 -> (first print of map1: Writer , second print of map1: Writer) , x + 2 -> (first print of map2: Writer , second print of map2: Writer))");
     }
 
     @Test
@@ -1805,7 +1805,7 @@ class StreamingJobGraphGeneratorTest {
         assertThat(allVertices).hasSize(1);
         assertThat(allVertices[0].getOperatorPrettyName())
                 .isEqualTo(
-                        "operator chained with source [test source 1, test source 2] -> (x + 1 -> (first print of map1 , second print of map1) , x + 2 -> (first print of map2 , second print of map2))");
+                        "operator chained with source [test source 1, test source 2] -> (x + 1 -> (first print of map1: Writer , second print of map1: Writer) , x + 2 -> (first print of map2: Writer , second print of map2: Writer))");
     }
 
     @Test
@@ -1869,7 +1869,7 @@ class StreamingJobGraphGeneratorTest {
         assertThat(new AbstractID(inputs.get(0).getSourceId()))
                 .isEqualTo(cacheTransformation.getDatasetId());
         assertThat(inputs.get(0).getSource().getProducer().getName())
-                .isEqualTo("map-1 -> map-2 -> Sink: print");
+                .isEqualTo("map-1 -> map-2 -> print: Writer");
 
         env.addCompletedClusterDataset(cacheTransformation.getDatasetId());
         cachedStream.print().name("print");
@@ -1877,7 +1877,7 @@ class StreamingJobGraphGeneratorTest {
         jobGraph = env.getStreamGraph().getJobGraph();
         allVertices = jobGraph.getVerticesSortedTopologicallyFromSources();
         assertThat(allVertices).hasSize(1);
-        assertThat(allVertices.get(0).getName()).isEqualTo("CacheRead -> Sink: print");
+        assertThat(allVertices.get(0).getName()).isEqualTo("CacheRead -> print: Writer");
         assertThat(allVertices.get(0).getIntermediateDataSetIdsToConsume()).hasSize(1);
         assertThat(new AbstractID(allVertices.get(0).getIntermediateDataSetIdsToConsume().get(0)))
                 .isEqualTo(cacheTransformation.getDatasetId());
@@ -2781,10 +2781,10 @@ class StreamingJobGraphGeneratorTest {
         }
         DataStream<Long> map1 = source.map(x -> x + 1).setDescription("x + 1");
         DataStream<Long> map2 = source.map(x -> x + 2).setDescription("x + 2");
-        map1.print().setDescription("first print of map1");
-        map1.print().setDescription("second print of map1");
-        map2.print().setDescription("first print of map2");
-        map2.print().setDescription("second print of map2");
+        map1.print("first print of map1");
+        map1.print("second print of map1");
+        map2.print("first print of map2");
+        map2.print("second print of map2");
         return StreamingJobGraphGenerator.createJobGraph(env.getStreamGraph());
     }
 
