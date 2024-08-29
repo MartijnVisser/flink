@@ -129,7 +129,7 @@ under the License.
 		<flink.shaded.jackson.version>2.15.3</flink.shaded.jackson.version>
 		<flink.shaded.jsonpath.version>2.7.0</flink.shaded.jsonpath.version>
 		<flink.markBundledAsOptional>true</flink.markBundledAsOptional>
-		<target.java.version>1.8</target.java.version>
+		<target.java.version>17</target.java.version>
 		<slf4j.version>1.7.36</slf4j.version>
 		<log4j.version>2.17.1</log4j.version>
 		<!-- Overwrite default values from parent pom.
@@ -1457,7 +1457,7 @@ under the License.
 				</property>
 			</activation>
 			<properties>
-				<target.java.version>1.8</target.java.version>
+				<target.java.version>17</target.java.version>
 			</properties>
 			<build>
 				<plugins>
@@ -1489,7 +1489,7 @@ under the License.
 										<!-- versions for certain build tools are enforced to match the CI setup -->
 										<!-- the rules below should stay in sync with Flink Release wiki documentation and the CI scripts -->
 										<requireJavaVersion>
-											<version>[1.8.0,1.8.1)</version>
+											<version>[17.*)</version>
 										</requireJavaVersion>
 									</rules>
 								</configuration>
@@ -2150,7 +2150,11 @@ under the License.
 						<target>${target.java.version}</target>
 						<!-- The semantics of this option are reversed, see MCOMPILER-209. -->
 						<useIncrementalCompilation>false</useIncrementalCompilation>
-						<compilerArgs>
+						<compilerArgs combine.children="append">
+							<arg>--add-exports=java.base/sun.net.util=ALL-UNNAMED</arg>
+							<arg>--add-exports=java.management/sun.management=ALL-UNNAMED</arg>
+							<arg>--add-exports=java.rmi/sun.rmi.registry=ALL-UNNAMED</arg>
+							<arg>--add-exports=java.security.jgss/sun.security.krb5=ALL-UNNAMED</arg>
 							<!-- Prevents recompilation due to missing package-info.class, see MCOMPILER-205 -->
 							<arg>-Xpkginfo:always</arg>
 						</compilerArgs>
