@@ -707,8 +707,8 @@ public class StandardConvertletTable extends ReflectiveConvertletTable {
                 cx,
                 fun,
                 call,
-                (SqlNode[] nodes) -> SqlJsonQueryFunction.hasExplicitTypeSpec(nodes),
-                (SqlCall c) -> SqlJsonQueryFunction.removeTypeSpecOperands(c));
+                operands -> SqlJsonQueryFunction.hasExplicitTypeSpec(operands),
+                SqlJsonQueryFunction::removeTypeSpecOperands);
     }
 
     public RexNode convertJsonReturningFunction(
