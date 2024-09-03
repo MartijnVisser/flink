@@ -2324,11 +2324,10 @@ under the License.
 				<plugin>
 					<groupId>net.alchim31.maven</groupId>
 					<artifactId>scala-maven-plugin</artifactId>
-					<version>3.2.2</version>
+					<version>4.9.2</version>
 					<configuration>
 						<args>
 							<arg>-nobootcp</arg>
-							<arg>-target:jvm-${target.java.version}</arg>
 						</args>
 						<jvmArgs>
 							<arg>-Xss2m</arg>
