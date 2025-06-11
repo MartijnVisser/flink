@@ -254,10 +254,17 @@ public class AvroConfluentITCase {
 
     @Test
     public void testAvroConfluentIntegrationWithManualRegister() throws Exception {
+        // Ensure Schema Registry is ready before proceeding
+        waitForSchemaRegistryToBeReady();
+
         // Manually register schemas before creating tables
         LOG.info("Registering schemas manually for manual registration test");
         registerSchema(MANUAL_TOPIC + "-value", INPUT_SCHEMA);
         registerSchema(MANUAL_RESULT_TOPIC + "-value", OUTPUT_SCHEMA);
+
+        // Verify schemas are actually registered and accessible
+        verifySchemaRegistration(MANUAL_TOPIC + "-value");
+        verifySchemaRegistration(MANUAL_RESULT_TOPIC + "-value");
 
         // Execute all statements in a single SQL session to maintain table state
         List<String> allSqlStatements =
@@ -440,5 +447,102 @@ public class AvroConfluentITCase {
                                 sqlAvroConfluentJar,
                                 sqlToolBoxJar)
                         .build());
+    }
+
+    private void waitForSchemaRegistryToBeReady() throws Exception {
+        LOG.info("Waiting for Schema Registry to be ready...");
+        try {
+            CommonTestUtils.waitUntilIgnoringExceptions(
+                    () -> {
+                        try {
+                            HttpRequest request =
+                                    HttpRequest.newBuilder()
+                                            .uri(
+                                                    URI.create(
+                                                            "http://"
+                                                                    + SCHEMA_REGISTRY.getHost()
+                                                                    + ":"
+                                                                    + SCHEMA_REGISTRY.getMappedPort(
+                                                                            8081)
+                                                                    + "/subjects"))
+                                            .GET()
+                                            .build();
+
+                            HttpResponse<String> response =
+                                    client.send(request, HttpResponse.BodyHandlers.ofString());
+                            boolean ready = response.statusCode() == 200;
+                            if (ready) {
+                                LOG.info("Schema Registry is ready");
+                            } else {
+                                LOG.info(
+                                        "Schema Registry not ready yet, status: {}",
+                                        response.statusCode());
+                            }
+                            return ready;
+                        } catch (Exception e) {
+                            LOG.warn("Exception while checking Schema Registry readiness", e);
+                            return false;
+                        }
+                    },
+                    Duration.ofSeconds(60),
+                    Duration.ofMillis(500),
+                    "Schema Registry was not ready in time");
+        } catch (TimeoutException | InterruptedException e) {
+            throw new RuntimeException("Failed to wait for Schema Registry to be ready", e);
+        }
+    }
+
+    private void verifySchemaRegistration(String subject) throws Exception {
+        LOG.info("Verifying schema registration for subject: {}", subject);
+        try {
+            CommonTestUtils.waitUntilIgnoringExceptions(
+                    () -> {
+                        try {
+                            HttpRequest request =
+                                    HttpRequest.newBuilder()
+                                            .uri(
+                                                    URI.create(
+                                                            "http://"
+                                                                    + SCHEMA_REGISTRY.getHost()
+                                                                    + ":"
+                                                                    + SCHEMA_REGISTRY.getMappedPort(
+                                                                            8081)
+                                                                    + "/subjects/"
+                                                                    + subject
+                                                                    + "/versions"))
+                                            .GET()
+                                            .build();
+
+                            HttpResponse<String> response =
+                                    client.send(request, HttpResponse.BodyHandlers.ofString());
+                            boolean exists = response.statusCode() == 200;
+                            if (exists) {
+                                LOG.info(
+                                        "Schema registration verified for subject: {}, versions: {}",
+                                        subject,
+                                        response.body());
+                            } else {
+                                LOG.warn(
+                                        "Schema not found for subject: {}, status: {}, body: {}",
+                                        subject,
+                                        response.statusCode(),
+                                        response.body());
+                            }
+                            return exists;
+                        } catch (Exception e) {
+                            LOG.warn(
+                                    "Exception while verifying schema registration for subject: "
+                                            + subject,
+                                    e);
+                            return false;
+                        }
+                    },
+                    Duration.ofSeconds(30),
+                    Duration.ofMillis(500),
+                    "Schema registration could not be verified for subject: " + subject);
+        } catch (TimeoutException | InterruptedException e) {
+            throw new RuntimeException(
+                    "Failed to verify schema registration for subject: " + subject, e);
+        }
     }
 }
