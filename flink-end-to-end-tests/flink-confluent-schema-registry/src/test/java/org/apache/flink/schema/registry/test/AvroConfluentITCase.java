@@ -46,6 +46,7 @@ import org.slf4j.LoggerFactory;
 import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.containers.KafkaContainer;
 import org.testcontainers.containers.Network;
+import org.testcontainers.containers.output.Slf4jLogConsumer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.utility.DockerImageName;
@@ -99,7 +100,8 @@ public class AvroConfluentITCase {
     public static final KafkaContainer KAFKA =
             new KafkaContainer(DockerImageName.parse(DockerImageVersions.KAFKA))
                     .withNetwork(NETWORK)
-                    .withNetworkAliases(INTER_CONTAINER_KAFKA_ALIAS);
+                    .withNetworkAliases(INTER_CONTAINER_KAFKA_ALIAS)
+                    .withLogConsumer(new Slf4jLogConsumer(LOG).withPrefix("KAFKA"));
 
     @Container
     private static final GenericContainer<?> SCHEMA_REGISTRY =
@@ -111,6 +113,7 @@ public class AvroConfluentITCase {
                     .withEnv(
                             "SCHEMA_REGISTRY_KAFKASTORE_BOOTSTRAP_SERVERS",
                             INTER_CONTAINER_KAFKA_ALIAS + ":9092")
+                    .withLogConsumer(new Slf4jLogConsumer(LOG).withPrefix("SCHEMA-REGISTRY"))
                     .dependsOn(KAFKA);
 
     private static final FlinkContainers FLINK =
@@ -130,9 +133,30 @@ public class AvroConfluentITCase {
 
     @BeforeAll
     public static void setup() throws Exception {
+        LOG.info("=== STARTING CONTAINER SETUP ===");
+        LOG.info(
+                "Environment: CI={}, Docker Host={}",
+                System.getenv("CI"),
+                System.getenv("DOCKER_HOST"));
+        LOG.info(
+                "Java Version: {}, OS: {}",
+                System.getProperty("java.version"),
+                System.getProperty("os.name"));
+
+        LOG.info("Starting Kafka container...");
         KAFKA.start();
+        LOG.info("Kafka started at: {}", KAFKA.getBootstrapServers());
+
+        LOG.info("Starting Schema Registry container...");
         SCHEMA_REGISTRY.start();
+        LOG.info(
+                "Schema Registry started at: {}:{}",
+                SCHEMA_REGISTRY.getHost(),
+                SCHEMA_REGISTRY.getMappedPort(8081));
+
+        LOG.info("Starting Flink containers...");
         FLINK.start();
+        LOG.info("=== CONTAINER SETUP COMPLETE ===");
     }
 
     @AfterAll
@@ -254,17 +278,35 @@ public class AvroConfluentITCase {
 
     @Test
     public void testAvroConfluentIntegrationWithManualRegister() throws Exception {
+        LOG.info("=== STARTING MANUAL REGISTRATION TEST ===");
+        LOG.info(
+                "Schema Registry URL (external): http://{}:{}",
+                SCHEMA_REGISTRY.getHost(),
+                SCHEMA_REGISTRY.getMappedPort(8081));
+        LOG.info(
+                "Schema Registry URL (internal): http://{}:8081",
+                INTER_CONTAINER_SCHEMA_REGISTRY_ALIAS);
+
         // Ensure Schema Registry is ready before proceeding
         waitForSchemaRegistryToBeReady();
 
         // Manually register schemas before creating tables
         LOG.info("Registering schemas manually for manual registration test");
+        long startTime = System.currentTimeMillis();
         registerSchema(MANUAL_TOPIC + "-value", INPUT_SCHEMA);
         registerSchema(MANUAL_RESULT_TOPIC + "-value", OUTPUT_SCHEMA);
+        long registrationTime = System.currentTimeMillis() - startTime;
+        LOG.info("Schema registration completed in {}ms", registrationTime);
 
         // Verify schemas are actually registered and accessible
         verifySchemaRegistration(MANUAL_TOPIC + "-value");
         verifySchemaRegistration(MANUAL_RESULT_TOPIC + "-value");
+
+        // Wait for network propagation between external and internal Docker networks
+        LOG.info(
+                "Waiting for network propagation to ensure schemas are accessible from all network paths...");
+        Thread.sleep(5000); // 5 second wait for network propagation in CI
+        LOG.info("Network propagation wait completed");
 
         // Execute all statements in a single SQL session to maintain table state
         List<String> allSqlStatements =
@@ -335,25 +377,39 @@ public class AvroConfluentITCase {
             requestBodyMap.put("schema", schema);
             String requestBody = objectMapper.writeValueAsString(requestBodyMap);
 
-            LOG.info("Registering schema for subject {} with schema: {}", subject, schema);
+            String url =
+                    "http://"
+                            + SCHEMA_REGISTRY.getHost()
+                            + ":"
+                            + SCHEMA_REGISTRY.getMappedPort(8081)
+                            + "/subjects/"
+                            + subject
+                            + "/versions";
+
+            LOG.info("=== REGISTERING SCHEMA ===");
+            LOG.info("Subject: {}", subject);
+            LOG.info("URL: {}", url);
+            LOG.info("Schema length: {} characters", schema.length());
+            LOG.info("Request body length: {} characters", requestBody.length());
 
             HttpRequest request =
                     HttpRequest.newBuilder()
-                            .uri(
-                                    URI.create(
-                                            "http://"
-                                                    + SCHEMA_REGISTRY.getHost()
-                                                    + ":"
-                                                    + SCHEMA_REGISTRY.getMappedPort(8081)
-                                                    + "/subjects/"
-                                                    + subject
-                                                    + "/versions"))
+                            .uri(URI.create(url))
                             .header("Content-Type", "application/vnd.schemaregistry.v1+json")
                             .POST(HttpRequest.BodyPublishers.ofString(requestBody))
                             .build();
 
+            long requestStart = System.currentTimeMillis();
             HttpResponse<String> response =
                     client.send(request, HttpResponse.BodyHandlers.ofString());
+            long requestDuration = System.currentTimeMillis() - requestStart;
+
+            LOG.info("=== SCHEMA REGISTRATION RESPONSE ===");
+            LOG.info("Subject: {}", subject);
+            LOG.info("Status Code: {}", response.statusCode());
+            LOG.info("Response Headers: {}", response.headers().map());
+            LOG.info("Response Body: {}", response.body());
+            LOG.info("Request Duration: {}ms", requestDuration);
 
             if (response.statusCode() != 200) {
                 LOG.error(
@@ -373,6 +429,60 @@ public class AvroConfluentITCase {
         } catch (Exception e) {
             LOG.error("Error registering schema for subject {}: {}", subject, e.getMessage(), e);
             throw new RuntimeException("Failed to register schema", e);
+        }
+    }
+
+    private void verifySchemaRegistration(String subject) throws Exception {
+        LOG.info("Verifying schema registration for subject: {}", subject);
+        try {
+            CommonTestUtils.waitUntilIgnoringExceptions(
+                    () -> {
+                        try {
+                            HttpRequest request =
+                                    HttpRequest.newBuilder()
+                                            .uri(
+                                                    URI.create(
+                                                            "http://"
+                                                                    + SCHEMA_REGISTRY.getHost()
+                                                                    + ":"
+                                                                    + SCHEMA_REGISTRY.getMappedPort(
+                                                                            8081)
+                                                                    + "/subjects/"
+                                                                    + subject
+                                                                    + "/versions"))
+                                            .GET()
+                                            .build();
+
+                            HttpResponse<String> response =
+                                    client.send(request, HttpResponse.BodyHandlers.ofString());
+                            boolean exists = response.statusCode() == 200;
+                            if (exists) {
+                                LOG.info(
+                                        "Schema registration verified for subject: {}, versions: {}",
+                                        subject,
+                                        response.body());
+                            } else {
+                                LOG.warn(
+                                        "Schema not found for subject: {}, status: {}, body: {}",
+                                        subject,
+                                        response.statusCode(),
+                                        response.body());
+                            }
+                            return exists;
+                        } catch (Exception e) {
+                            LOG.warn(
+                                    "Exception while verifying schema registration for subject: "
+                                            + subject,
+                                    e);
+                            return false;
+                        }
+                    },
+                    Duration.ofSeconds(30),
+                    Duration.ofMillis(500),
+                    "Schema registration could not be verified for subject: " + subject);
+        } catch (TimeoutException | InterruptedException e) {
+            throw new RuntimeException(
+                    "Failed to verify schema registration for subject: " + subject, e);
         }
     }
 
@@ -489,60 +599,6 @@ public class AvroConfluentITCase {
                     "Schema Registry was not ready in time");
         } catch (TimeoutException | InterruptedException e) {
             throw new RuntimeException("Failed to wait for Schema Registry to be ready", e);
-        }
-    }
-
-    private void verifySchemaRegistration(String subject) throws Exception {
-        LOG.info("Verifying schema registration for subject: {}", subject);
-        try {
-            CommonTestUtils.waitUntilIgnoringExceptions(
-                    () -> {
-                        try {
-                            HttpRequest request =
-                                    HttpRequest.newBuilder()
-                                            .uri(
-                                                    URI.create(
-                                                            "http://"
-                                                                    + SCHEMA_REGISTRY.getHost()
-                                                                    + ":"
-                                                                    + SCHEMA_REGISTRY.getMappedPort(
-                                                                            8081)
-                                                                    + "/subjects/"
-                                                                    + subject
-                                                                    + "/versions"))
-                                            .GET()
-                                            .build();
-
-                            HttpResponse<String> response =
-                                    client.send(request, HttpResponse.BodyHandlers.ofString());
-                            boolean exists = response.statusCode() == 200;
-                            if (exists) {
-                                LOG.info(
-                                        "Schema registration verified for subject: {}, versions: {}",
-                                        subject,
-                                        response.body());
-                            } else {
-                                LOG.warn(
-                                        "Schema not found for subject: {}, status: {}, body: {}",
-                                        subject,
-                                        response.statusCode(),
-                                        response.body());
-                            }
-                            return exists;
-                        } catch (Exception e) {
-                            LOG.warn(
-                                    "Exception while verifying schema registration for subject: "
-                                            + subject,
-                                    e);
-                            return false;
-                        }
-                    },
-                    Duration.ofSeconds(30),
-                    Duration.ofMillis(500),
-                    "Schema registration could not be verified for subject: " + subject);
-        } catch (TimeoutException | InterruptedException e) {
-            throw new RuntimeException(
-                    "Failed to verify schema registration for subject: " + subject, e);
         }
     }
 }

@@ -18,19 +18,21 @@
 
 package org.apache.flink.schema.registry.test;
 
+import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
 
-/** Utility class for loading Avro schema files from resources. */
+/** Utility class for loading Avro schema files. */
 public class SchemaLoader {
 
     /**
-     * Load an Avro schema from a resource file.
+     * Loads an Avro schema from a resource file, extracting only the JSON content and ignoring any
+     * comments.
      *
-     * @param resourcePath Path to the .avsc file in resources
-     * @return Schema content as string
-     * @throws RuntimeException if the file cannot be loaded
+     * @param resourcePath the path to the schema resource file
+     * @return the schema as a JSON string
      */
     public static String loadSchema(String resourcePath) {
         try (InputStream inputStream =
@@ -38,9 +40,60 @@ public class SchemaLoader {
             if (inputStream == null) {
                 throw new RuntimeException("Schema file not found: " + resourcePath);
             }
-            return new String(inputStream.readAllBytes(), StandardCharsets.UTF_8);
+
+            StringBuilder content = new StringBuilder();
+            try (BufferedReader reader =
+                    new BufferedReader(
+                            new InputStreamReader(inputStream, StandardCharsets.UTF_8))) {
+                String line;
+                boolean inJsonBlock = false;
+                int braceCount = 0;
+
+                while ((line = reader.readLine()) != null) {
+                    String trimmedLine = line.trim();
+
+                    // Skip empty lines and comments
+                    if (trimmedLine.isEmpty()
+                            || trimmedLine.startsWith("/*")
+                            || trimmedLine.startsWith("*")
+                            || trimmedLine.startsWith("//")) {
+                        continue;
+                    }
+
+                    // Start of JSON block
+                    if (trimmedLine.startsWith("{")) {
+                        inJsonBlock = true;
+                    }
+
+                    // If we're in the JSON block, add the line and count braces
+                    if (inJsonBlock) {
+                        content.append(line).append("\n");
+
+                        // Count opening and closing braces to know when we're done
+                        for (char c : line.toCharArray()) {
+                            if (c == '{') {
+                                braceCount++;
+                            } else if (c == '}') {
+                                braceCount--;
+                            }
+                        }
+
+                        // If braceCount reaches 0, we've closed all braces - end of JSON
+                        if (braceCount == 0) {
+                            break;
+                        }
+                    }
+                }
+            }
+
+            String schema = content.toString().trim();
+            if (schema.isEmpty()) {
+                throw new RuntimeException("No JSON schema found in file: " + resourcePath);
+            }
+
+            return schema;
         } catch (IOException e) {
-            throw new RuntimeException("Failed to load schema from: " + resourcePath, e);
+            throw new RuntimeException("Failed to load schema from " + resourcePath, e);
         }
     }
 }
