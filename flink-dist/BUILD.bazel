@@ -1,0 +1,356 @@
+# Licensed to the Apache Software Foundation (ASF) under one or more
+# contributor license agreements.  See the NOTICE file distributed with
+# this work for additional information regarding copyright ownership.
+# The ASF licenses this file to You under the Apache License, Version 2.0
+# (the "License"); you may not use this file except in compliance with
+# the License.  You may obtain a copy of the License at
+#
+#    http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+
+"""
+BUILD file for flink-dist module - Flink Distribution Packaging
+
+This module creates the complete Flink distribution package, replicating Maven's
+maven-assembly-plugin functionality using Bazel's rules_pkg.
+
+Distribution Structure:
+- lib/        - Core runtime JARs (Log4j2, flink-dist uber JAR, table JARs)
+- bin/        - Shell scripts and bash-java-utils.jar
+- conf/       - Configuration files (config.yaml, log4j properties)
+- opt/        - Optional components (table-planner, filesystems, SQL clients)
+- examples/   - Example JARs for streaming and table APIs
+- log/        - Empty log directory
+
+Build Commands:
+  bazel build //flink-dist:bash-java-utils-jar   # Bash utilities JAR
+  bazel build //flink-dist:flink-dist-uber-jar   # Main distribution uber JAR
+  bazel build //flink-dist:flink-distribution    # Complete distribution tarball
+"""
+
+load("@rules_java//java:defs.bzl", "java_binary")
+
+# ============================================================================
+# Uber JARs
+# ============================================================================
+
+# bash-java-utils.jar - Single class JAR for bash utilities
+# Extracts BashJavaUtils class from flink-runtime
+genrule(
+    name = "bash-java-utils-jar",
+    srcs = ["//flink-runtime:flink-runtime"],
+    outs = ["bash-java-utils.jar"],
+    cmd = """
+    # Extract the flink-runtime JAR
+    RUNTIME_JAR=$$(echo $(SRCS) | tr ' ' '\\n' | grep 'flink-runtime.*\\.jar$$' | head -1)
+
+    # Create temp directory
+    mkdir -p tmp_bash_utils/org/apache/flink/runtime/util/bash
+
+    # Extract only BashJavaUtils class
+    unzip -q $$RUNTIME_JAR 'org/apache/flink/runtime/util/bash/BashJavaUtils.class' -d tmp_bash_utils || true
+    unzip -q $$RUNTIME_JAR 'org/apache/flink/runtime/util/bash/BashJavaUtils$$*.class' -d tmp_bash_utils || true
+
+    # Create the JAR
+    cd tmp_bash_utils
+    zip -q -r ../$(OUTS) org/
+    cd ..
+    rm -rf tmp_bash_utils
+    """,
+    visibility = ["//visibility:public"],
+)
+
+# flink-dist uber JAR - Main distribution JAR with all compile dependencies
+# Excludes Log4j2 (packaged separately)
+java_binary(
+    name = "flink-dist-bin",
+    main_class = "org.apache.flink.client.cli.CliFrontend",
+    runtime_deps = [
+        "//flink-clients",
+        "//flink-core",
+        "//flink-core-api",
+        "//flink-datastream",
+        "//flink-datastream-api",
+        "//flink-runtime",
+        "//flink-streaming-java",
+        # Shaded dependencies
+        "@flink_shaded//:org_apache_flink_flink_shaded_guava",
+        "@flink_shaded//:org_apache_flink_flink_shaded_jackson",
+        "@flink_shaded//:org_apache_flink_flink_shaded_netty",
+        "@flink_shaded//:org_apache_flink_flink_shaded_zookeeper_3",
+        # External dependencies (excluding Log4j2)
+        "@maven//:com_esotericsoftware_kryo",
+        "@maven//:org_apache_commons_commons_lang3",
+        "@maven//:commons_io_commons_io",
+        "@maven//:org_slf4j_slf4j_api",
+    ],
+    visibility = ["//visibility:public"],
+)
+
+# Extract the deploy JAR for packaging
+genrule(
+    name = "flink-dist-uber-jar",
+    srcs = [":flink-dist-bin_deploy.jar"],
+    outs = ["flink-dist.jar"],
+    cmd = "cp $< $@",
+    visibility = ["//visibility:public"],
+)
+
+# ============================================================================
+# Distribution Packaging - Custom approach using genrule and tar
+# ============================================================================
+
+# Main distribution tarball using genrule
+# This creates a complete Flink distribution similar to Maven's assembly plugin
+genrule(
+    name = "flink-distribution",
+    srcs = glob([
+        "src/main/flink-bin/bin/*",
+        "src/main/flink-bin/conf/*",
+        "src/main/resources/config.yaml",
+    ]) + [
+        ":bash-java-utils-jar",
+        ":flink-dist-uber-jar",
+        "//:LICENSE",
+        "//:NOTICE",
+        # Log4j2 JARs
+        "@maven//:org_apache_logging_log4j_log4j_api",
+        "@maven//:org_apache_logging_log4j_log4j_core",
+        "@maven//:org_apache_logging_log4j_log4j_slf4j_impl",
+        "@maven//:org_apache_logging_log4j_log4j_1_2_api",
+        "@maven//:org_apache_logging_log4j_log4j_layout_template_json",
+        # Table JARs
+        "//flink-table/flink-table-api-java",
+        "//flink-table/flink-table-runtime",
+        "//flink-table/flink-table-planner-loader",
+        # Connectors
+        "//flink-connectors/flink-connector-files",
+        # Formats
+        "//flink-formats/flink-csv",
+        "//flink-formats/flink-json",
+        # CEP
+        "//flink-libraries/flink-cep",
+        # Web UI (frontend assets are embedded in flink-runtime-web.jar)
+        "//flink-runtime-web",
+        # Plugins - Metrics
+        "//flink-metrics/flink-metrics-jmx",
+        "//flink-metrics/flink-metrics-graphite",
+        "//flink-metrics/flink-metrics-influxdb",
+        "//flink-metrics/flink-metrics-prometheus",
+        "//flink-metrics/flink-metrics-statsd",
+        "//flink-metrics/flink-metrics-datadog",
+        "//flink-metrics/flink-metrics-slf4j",
+        "//flink-metrics/flink-metrics-otel",
+        # Plugins - External Resources
+        "//flink-external-resources/flink-external-resource-gpu",
+        # Optional Modules (opt/)
+        "//flink-table/flink-table-planner",
+        "//flink-table/flink-sql-client",
+        "//flink-table/flink-sql-gateway",
+        "//flink-libraries/flink-state-processing-api",
+        "//flink-filesystems/flink-s3-fs-hadoop",
+        "//flink-filesystems/flink-s3-fs-presto",
+        "//flink-filesystems/flink-oss-fs-hadoop",
+        "//flink-filesystems/flink-azure-fs-hadoop",
+        "//flink-filesystems/flink-gs-fs-hadoop",
+        "//flink-queryable-state/flink-queryable-state-runtime",
+        # Examples
+        "//flink-examples/flink-examples-streaming",
+        "//flink-examples/flink-examples-table",
+    ],
+    outs = ["flink-2.3-SNAPSHOT.tar.gz"],
+    cmd = """
+    # Create distribution directory structure
+    DIST_DIR=$$(mktemp -d)
+    FLINK_DIR=$$DIST_DIR/flink-2.3-SNAPSHOT
+
+    mkdir -p $$FLINK_DIR/bin
+    mkdir -p $$FLINK_DIR/conf
+    mkdir -p $$FLINK_DIR/lib
+    mkdir -p $$FLINK_DIR/opt
+    mkdir -p $$FLINK_DIR/examples
+    mkdir -p $$FLINK_DIR/log
+    mkdir -p $$FLINK_DIR/plugins
+
+    # Copy bin scripts
+    for f in $(SRCS); do
+        if [[ $$f == */flink-bin/bin/* ]]; then
+            cp $$f $$FLINK_DIR/bin/
+            chmod 755 $$FLINK_DIR/bin/$$(basename $$f)
+        fi
+    done
+
+    # Copy conf files
+    for f in $(SRCS); do
+        if [[ $$f == */flink-bin/conf/* ]]; then
+            cp $$f $$FLINK_DIR/conf/
+        elif [[ $$f == */config.yaml ]]; then
+            cp $$f $$FLINK_DIR/conf/
+        fi
+    done
+
+    # Copy root files (LICENSE, NOTICE)
+    for f in $(SRCS); do
+        if [[ $$(basename $$f) == "LICENSE" ]] || [[ $$(basename $$f) == "NOTICE" ]]; then
+            cp $$f $$FLINK_DIR/
+        fi
+    done
+
+    # Copy lib JARs
+    for f in $(SRCS); do
+        if [[ $$f == */bash-java-utils.jar ]]; then
+            cp $$f $$FLINK_DIR/bin/
+        elif [[ $$f == */flink-dist.jar ]]; then
+            cp $$f $$FLINK_DIR/lib/flink-dist-2.3-SNAPSHOT.jar
+        elif [[ $$f == */log4j*.jar ]]; then
+            # Strip 'processed_' prefix from log4j JARs
+            BASENAME=$$(basename $$f)
+            CLEAN_NAME=$${BASENAME#processed_}
+            cp $$f $$FLINK_DIR/lib/$$CLEAN_NAME
+        elif [[ $$f == */flink-table-*.jar ]] || [[ $$f == */flink-connector-*.jar ]] || \
+             [[ $$f == */flink-csv*.jar ]] || [[ $$f == */flink-json*.jar ]] || \
+             [[ $$f == */flink-cep*.jar ]] || [[ $$f == */flink-runtime-web*.jar ]]; then
+            # Strip 'lib' prefix from Bazel-generated JARs
+            BASENAME=$$(basename $$f)
+            CLEAN_NAME=$${BASENAME#lib}
+            cp $$f $$FLINK_DIR/lib/$$CLEAN_NAME
+        fi
+    done
+
+    # Copy plugin JARs to their subdirectories
+    # Metrics plugins
+    for f in $(SRCS); do
+        BASENAME=$$(basename $$f)
+        CLEAN_NAME=$${BASENAME#lib}
+
+        if [[ $$f == */flink-metrics-jmx*.jar ]]; then
+            mkdir -p $$FLINK_DIR/plugins/metrics-jmx
+            cp $$f $$FLINK_DIR/plugins/metrics-jmx/$$CLEAN_NAME
+        elif [[ $$f == */flink-metrics-graphite*.jar ]]; then
+            mkdir -p $$FLINK_DIR/plugins/metrics-graphite
+            cp $$f $$FLINK_DIR/plugins/metrics-graphite/$$CLEAN_NAME
+        elif [[ $$f == */flink-metrics-influxdb*.jar ]]; then
+            mkdir -p $$FLINK_DIR/plugins/metrics-influx
+            cp $$f $$FLINK_DIR/plugins/metrics-influx/$$CLEAN_NAME
+        elif [[ $$f == */flink-metrics-prometheus*.jar ]]; then
+            mkdir -p $$FLINK_DIR/plugins/metrics-prometheus
+            cp $$f $$FLINK_DIR/plugins/metrics-prometheus/$$CLEAN_NAME
+        elif [[ $$f == */flink-metrics-statsd*.jar ]]; then
+            mkdir -p $$FLINK_DIR/plugins/metrics-statsd
+            cp $$f $$FLINK_DIR/plugins/metrics-statsd/$$CLEAN_NAME
+        elif [[ $$f == */flink-metrics-datadog*.jar ]]; then
+            mkdir -p $$FLINK_DIR/plugins/metrics-datadog
+            cp $$f $$FLINK_DIR/plugins/metrics-datadog/$$CLEAN_NAME
+        elif [[ $$f == */flink-metrics-slf4j*.jar ]]; then
+            mkdir -p $$FLINK_DIR/plugins/metrics-slf4j
+            cp $$f $$FLINK_DIR/plugins/metrics-slf4j/$$CLEAN_NAME
+        elif [[ $$f == */flink-metrics-otel*.jar ]]; then
+            mkdir -p $$FLINK_DIR/plugins/metrics-otel
+            cp $$f $$FLINK_DIR/plugins/metrics-otel/$$CLEAN_NAME
+        elif [[ $$f == */flink-external-resource-gpu*.jar ]]; then
+            mkdir -p $$FLINK_DIR/plugins/external-resource-gpu
+            cp $$f $$FLINK_DIR/plugins/external-resource-gpu/$$CLEAN_NAME
+            # Extract GPU discovery scripts from JAR
+            unzip -q -j $$f '*.sh' -d $$FLINK_DIR/plugins/external-resource-gpu/ 2>/dev/null || true
+            chmod 755 $$FLINK_DIR/plugins/external-resource-gpu/*.sh 2>/dev/null || true
+        fi
+    done
+
+    # Copy optional modules to opt/ directory (flat structure, no subdirectories)
+    for f in $(SRCS); do
+        BASENAME=$$(basename $$f)
+        CLEAN_NAME=$${BASENAME#lib}
+
+        if [[ $$f == */flink-table-planner*.jar ]]; then
+            cp $$f $$FLINK_DIR/opt/$$CLEAN_NAME
+        elif [[ $$f == */flink-sql-client*.jar ]]; then
+            cp $$f $$FLINK_DIR/opt/$$CLEAN_NAME
+        elif [[ $$f == */flink-sql-gateway*.jar ]]; then
+            cp $$f $$FLINK_DIR/opt/$$CLEAN_NAME
+        elif [[ $$f == */flink-state-processing-api*.jar ]]; then
+            cp $$f $$FLINK_DIR/opt/$$CLEAN_NAME
+        elif [[ $$f == */flink-s3-fs-hadoop*.jar ]]; then
+            cp $$f $$FLINK_DIR/opt/$$CLEAN_NAME
+        elif [[ $$f == */flink-s3-fs-presto*.jar ]]; then
+            cp $$f $$FLINK_DIR/opt/$$CLEAN_NAME
+        elif [[ $$f == */flink-oss-fs-hadoop*.jar ]]; then
+            cp $$f $$FLINK_DIR/opt/$$CLEAN_NAME
+        elif [[ $$f == */flink-azure-fs-hadoop*.jar ]]; then
+            cp $$f $$FLINK_DIR/opt/$$CLEAN_NAME
+        elif [[ $$f == */flink-gs-fs-hadoop*.jar ]]; then
+            cp $$f $$FLINK_DIR/opt/$$CLEAN_NAME
+        elif [[ $$f == */flink-queryable-state-runtime*.jar ]]; then
+            cp $$f $$FLINK_DIR/opt/$$CLEAN_NAME
+        fi
+    done
+
+    # Copy example JARs to examples/ subdirectories
+    for f in $(SRCS); do
+        BASENAME=$$(basename $$f)
+        CLEAN_NAME=$${BASENAME#lib}
+
+        if [[ $$f == */flink-examples-streaming*.jar ]]; then
+            mkdir -p $$FLINK_DIR/examples/streaming
+            cp $$f $$FLINK_DIR/examples/streaming/$$CLEAN_NAME
+        elif [[ $$f == */flink-examples-table*.jar ]]; then
+            mkdir -p $$FLINK_DIR/examples/table
+            cp $$f $$FLINK_DIR/examples/table/$$CLEAN_NAME
+        fi
+    done
+
+    # Create tarball
+    OUTPUT_FILE=$$(pwd)/$(location flink-2.3-SNAPSHOT.tar.gz)
+    cd $$DIST_DIR
+    tar czf $$OUTPUT_FILE flink-2.3-SNAPSHOT/
+
+    # Cleanup
+    cd /
+    rm -rf $$DIST_DIR
+    """,
+    visibility = ["//visibility:public"],
+)
+
+# Convenience rule to extract the distribution to build-target
+genrule(
+    name = "build-target",
+    srcs = [":flink-distribution"],
+    outs = ["build-target.txt"],
+    cmd = """
+    # Find workspace root by looking for WORKSPACE file and resolving symlinks
+    DIR=$$(pwd)
+    while [ ! -f "$$DIR/WORKSPACE" ] && [ "$$DIR" != "/" ]; do
+        DIR=$$(dirname "$$DIR")
+    done
+
+    if [ ! -f "$$DIR/WORKSPACE" ]; then
+        echo "ERROR: Could not find WORKSPACE file" >&2
+        exit 1
+    fi
+
+    # Resolve symlink to get the real workspace directory
+    if [ -L "$$DIR/WORKSPACE" ]; then
+        # WORKSPACE is a symlink, resolve it to find real workspace
+        REAL_WORKSPACE=$$(readlink "$$DIR/WORKSPACE")
+        WORKSPACE_ROOT=$$(dirname "$$REAL_WORKSPACE")
+    else
+        WORKSPACE_ROOT="$$DIR"
+    fi
+
+    # Remove old build-target
+    rm -rf $$WORKSPACE_ROOT/build-target
+
+    # Extract new distribution
+    mkdir -p $$WORKSPACE_ROOT/build-target
+    tar xzf $(location :flink-distribution) -C $$WORKSPACE_ROOT/build-target --strip-components=1
+
+    echo "Distribution extracted to $$WORKSPACE_ROOT/build-target" > $@
+    """,
+    local = True,
+    visibility = ["//visibility:public"],
+)

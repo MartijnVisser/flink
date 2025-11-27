@@ -1,0 +1,209 @@
+# Licensed to the Apache Software Foundation (ASF) under one or more
+# contributor license agreements.  See the NOTICE file distributed with
+# this work for additional information regarding copyright ownership.
+# The ASF licenses this file to You under the Apache License, Version 2.0
+# (the "License"); you may not use this file except in compliance with
+# the License.  You may obtain a copy of the License at
+#
+#    http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+
+"""
+BUILD file for flink-runtime-web module.
+
+This module provides the web UI and REST API for Flink.
+It includes both the Java REST API backend and the Angular 20 frontend.
+
+Note: Following Maven's approach, the web dashboard resources (web/) are embedded
+directly into the flink-runtime-web.jar, not packaged as a separate JAR.
+"""
+
+load("@rules_java//java:defs.bzl", "java_import", "java_library")
+load("//tools/bazel:java_library_suite.bzl", "flink_java_tests")
+
+# Build the Angular frontend using npm
+# Note: This is a local genrule (no sandboxing) because npm builds are inherently non-hermetic
+# It runs npm install and npm run build directly in the source directory
+genrule(
+    name = "web-dashboard-build",
+    srcs = glob([
+        "web-dashboard/**/*",
+    ], exclude = [
+        "web-dashboard/node_modules/**",
+        "web-dashboard/web/**",
+        "web-dashboard/.angular/**",
+    ]),
+    outs = ["web-dashboard-dist.tar"],
+    cmd = """
+    set -e
+    set -x
+
+    echo "Building Angular frontend..."
+
+    # Get absolute path to output tar file FIRST (before any cd commands)
+    # This ensures the path is valid regardless of working directory changes
+    OUTPUT_TAR=$$(realpath $@)
+
+    # Navigate to web-dashboard directory in the workspace
+    # Since this is a local genrule, we can access the source directory directly
+    cd flink-runtime-web/web-dashboard
+
+    # Clean previous builds
+    rm -rf node_modules web .angular 2>/dev/null || true
+
+    # Install dependencies
+    echo "Installing npm dependencies..."
+    npm ci --cache-max=0 --no-save 2>&1 || npm install 2>&1
+
+    # Build the Angular application
+    echo "Building Angular application with ng build..."
+    npm run build 2>&1
+
+    # Package the web directory (Angular's outputPath from angular.json)
+    echo "Packaging frontend assets..."
+    cd web
+    tar cf $$OUTPUT_TAR .
+
+    echo "Frontend build complete!"
+    """,
+    local = True,
+    visibility = ["//visibility:private"],
+)
+
+# Base library without web resources
+# This is compiled first, then web resources are merged in
+java_library(
+    name = "flink-runtime-web-base",
+    srcs = glob(["src/main/java/**/*.java"]),
+    resources = glob(["src/main/resources/**/*"], allow_empty = True),
+    deps = [
+        "//flink-annotations",
+        "//flink-clients",
+        "//flink-core",
+        "//flink-core-api",
+        "//flink-runtime",
+        "@flink_shaded//:org_apache_flink_flink_shaded_guava",
+        "@flink_shaded//:org_apache_flink_flink_shaded_jackson",
+        "@flink_shaded//:org_apache_flink_flink_shaded_netty",
+        "@maven//:com_google_code_findbugs_jsr305",
+        "@maven//:org_slf4j_slf4j_api",
+    ],
+    javacopts = [
+        "-source",
+        "11",
+        "-target",
+        "11",
+    ],
+    visibility = ["//visibility:private"],
+)
+
+# Main library target with embedded web resources
+# Maven's approach: web-dashboard/web/** is included as resources in flink-runtime-web.jar
+# Our approach: Merge base JAR with web resources JAR to create final library JAR
+genrule(
+    name = "flink-runtime-web-jar",
+    srcs = [
+        ":flink-runtime-web-base",
+        ":web-dashboard-build",
+    ],
+    outs = ["flink-runtime-web.jar"],
+    cmd = """
+    set -e
+
+    # Find the base library JAR and tar file using absolute paths
+    BASE_JAR=$$(realpath $$(echo $(SRCS) | tr ' ' '\\n' | grep 'flink-runtime-web-base.*\\.jar$$' | head -1))
+    TAR_FILE=$$(realpath $$(echo $(SRCS) | tr ' ' '\\n' | grep 'web-dashboard-dist\\.tar$$' | head -1))
+    OUTPUT_JAR=$$(realpath $@)
+
+    # Create temp directory
+    TEMP_DIR=$$(mktemp -d)
+
+    # Extract base JAR
+    cd $$TEMP_DIR
+    jar xf $$BASE_JAR
+
+    # Extract and add web resources
+    mkdir -p web
+    tar xf $$TAR_FILE -C web
+
+    # Create final JAR with both class files and web resources
+    jar cf $$OUTPUT_JAR .
+
+    # Cleanup
+    cd /
+    rm -rf $$TEMP_DIR
+    """,
+    visibility = ["//visibility:public"],
+)
+
+# Wrapper java_import to make the genrule JAR usable as a java_library
+java_import(
+    name = "flink-runtime-web",
+    jars = [":flink-runtime-web-jar"],
+    deps = [
+        "//flink-annotations",
+        "//flink-clients",
+        "//flink-core",
+        "//flink-core-api",
+        "//flink-runtime",
+        "@flink_shaded//:org_apache_flink_flink_shaded_guava",
+        "@flink_shaded//:org_apache_flink_flink_shaded_jackson",
+        "@flink_shaded//:org_apache_flink_flink_shaded_netty",
+        "@maven//:com_google_code_findbugs_jsr305",
+        "@maven//:org_slf4j_slf4j_api",
+    ],
+    visibility = ["//visibility:public"],
+)
+
+# Test JAR for WebSubmissionExtensionTest
+# Maven builds this via maven-jar-plugin (pom.xml lines 233-251)
+java_binary(
+    name = "output-test-program-binary",
+    srcs = ["src/test/java/org/apache/flink/runtime/webmonitor/handlers/utils/OutputTestProgram.java"],
+    main_class = "org.apache.flink.runtime.webmonitor.handlers.utils.OutputTestProgram",
+    testonly = True,
+    visibility = ["//visibility:private"],
+)
+
+# Rename the deploy JAR to match the expected name
+genrule(
+    name = "output-test-program",
+    srcs = [":output-test-program-binary_deploy.jar"],
+    outs = ["output-test-program.jar"],
+    cmd = "cp $< $@",
+    testonly = True,
+    visibility = ["//visibility:private"],
+)
+
+# Tests
+flink_java_tests(
+    name = "tests",
+    deps = [
+        ":flink-runtime-web",
+        # Test utilities from flink-runtime test-jar
+        "//flink-runtime:flink-runtime-test-jar",
+        # Direct dependencies to fix strict dependency warnings
+        "//flink-core",
+        "//flink-rpc/flink-rpc-core",
+        "@maven//:com_google_code_findbugs_jsr305",
+        "@flink_shaded//:org_apache_flink_flink_shaded_jackson",
+        "@flink_shaded//:org_apache_flink_flink_shaded_netty",
+    ],
+    runtime_deps = [
+        # HistoryServerTest uses Hadoop which requires log4j 1.x API
+        # log4j-1.2-api provides log4j 1.x API compatibility backed by log4j 2.x
+        "@maven//:org_apache_logging_log4j_log4j_1_2_api",
+    ],
+    data = [":output-test-program"],
+    jvm_flags = [
+        # WebSubmissionExtensionTest needs output-test-program.jar location
+        # Point to the Bazel runfiles directory where the JAR is available
+        "-DtargetDir=$${TEST_SRCDIR}/$${TEST_WORKSPACE}/flink-runtime-web",
+    ],
+)

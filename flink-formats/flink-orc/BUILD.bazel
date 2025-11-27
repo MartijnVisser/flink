@@ -1,0 +1,58 @@
+# Licensed to the Apache Software Foundation (ASF) under one or more
+# contributor license agreements.  See the NOTICE file distributed with
+# this work for additional information regarding copyright ownership.
+# The ASF licenses this file to You under the Apache License, Version 2.0
+# (the "License"); you may not use this file except in compliance with
+# the License.  You may obtain a copy of the License at
+#
+#    http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+
+"""
+BUILD file for flink-orc module.
+
+This module provides ORC format support for Flink.
+"""
+
+load("//tools/bazel:java_library_suite.bzl", "flink_java_library", "flink_java_tests")
+
+# Main library target
+flink_java_library(
+    name = "flink-orc",
+    srcs = glob(["src/main/java/**/*.java"]),
+    resources = glob(["src/main/resources/**/*"], allow_empty = True),
+    resource_strip_prefix = "flink-formats/flink-orc/src/main/resources",
+    deps = [
+        "//flink-annotations",
+        "//flink-connectors/flink-connector-base",
+        "//flink-connectors/flink-connector-files",
+        "//flink-core",
+        "//flink-core-api",
+        "//flink-filesystems/flink-hadoop-fs",
+        "//flink-formats/flink-hadoop-bulk",
+        "//flink-streaming-java",
+        "//flink-table/flink-table-common",
+        "@flink_shaded//:org_apache_flink_flink_shaded_zookeeper_3",
+        "@maven//:com_google_code_findbugs_jsr305",
+        "@maven//:com_google_protobuf_protobuf_java",
+        "@maven//:org_apache_commons_commons_lang3",
+        "@maven//:org_apache_hadoop_hadoop_common",
+        "@maven//:org_apache_hive_hive_storage_api",
+        "@maven//:org_apache_orc_orc_core",
+        "@maven//:org_apache_orc_orc_shims",
+        "@maven//:org_slf4j_slf4j_api",
+    ],
+    visibility = ["//visibility:public"],
+)
+
+# Tests
+flink_java_tests(
+    name = "tests",
+    deps = [":flink-orc"],
+)

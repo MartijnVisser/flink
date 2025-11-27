@@ -73,5 +73,3 @@ tools/japicmp-output
 /bazel-*
 # Ignore Immutables-generated sources in flink-table-planner (regenerate locally with Maven when needed)
 flink-table/flink-table-planner/src/main/java-generated/
-# Ignore Claude Code
-.claude/*

@@ -1,0 +1,57 @@
+# Licensed to the Apache Software Foundation (ASF) under one or more
+# contributor license agreements.  See the NOTICE file distributed with
+# this work for additional information regarding copyright ownership.
+# The ASF licenses this file to You under the Apache License, Version 2.0
+# (the "License"); you may not use this file except in compliance with
+# the License.  You may obtain a copy of the License at
+#
+#    http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+
+"""
+BUILD file for flink-metrics-core module.
+
+This module provides the core metrics infrastructure for Apache Flink.
+"""
+
+load("//tools/bazel:java_library_suite.bzl", "flink_java_library", "flink_java_tests")
+
+# Main library target
+flink_java_library(
+    name = "flink-metrics-core",
+    srcs = glob(["src/main/java/**/*.java"]),
+    deps = [
+        "//flink-annotations",
+        "@maven//:org_slf4j_slf4j_api",
+    ],
+    visibility = ["//visibility:public"],
+)
+
+# Test-jar imported from Maven build (to avoid circular dependencies)
+# This contains test utilities (TestMeter, TestHistogram, etc.) needed by other modules
+java_import(
+    name = "flink-metrics-core-test-jar",
+    jars = ["target/flink-metrics-core-2.3-SNAPSHOT-tests.jar"],
+    testonly = True,
+    visibility = ["//visibility:public"],
+    deps = [
+        ":flink-metrics-core",
+        "//flink-annotations",
+        "@maven//:org_slf4j_slf4j_api",
+        "@maven//:junit_junit",
+        "@maven//:org_junit_jupiter_junit_jupiter_api",
+        "@maven//:org_assertj_assertj_core",
+    ],
+)
+
+# Tests
+flink_java_tests(
+    name = "tests",
+    deps = [":flink-metrics-core"],
+)

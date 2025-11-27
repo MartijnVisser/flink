@@ -1,0 +1,63 @@
+# Licensed to the Apache Software Foundation (ASF) under one or more
+# contributor license agreements.  See the NOTICE file distributed with
+# this work for additional information regarding copyright ownership.
+# The ASF licenses this file to You under the Apache License, Version 2.0
+# (the "License"); you may not use this file except in compliance with
+# the License.  You may obtain a copy of the License at
+#
+#    http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+
+"""
+BUILD file for flink-examples-streaming module.
+
+This module contains streaming examples for Flink.
+"""
+
+load("//tools/bazel:java_library_suite.bzl", "flink_java_library", "flink_java_tests")
+
+flink_java_library(
+    name = "flink-examples-streaming",
+    srcs = glob(
+        ["src/main/java/**/*.java"],
+        exclude = [
+            # Exclude Kafka examples (require external flink-connector-kafka Maven artifact)
+            "src/main/java/org/apache/flink/streaming/examples/statemachine/kafka/**/*.java",
+            "src/main/java/org/apache/flink/streaming/examples/statemachine/StateMachineExample.java",
+            # Exclude GPU examples (require JCuda libraries)
+            "src/main/java/org/apache/flink/streaming/examples/gpu/**/*.java",
+        ],
+    ),
+    resources = glob(["src/main/resources/**/*"], allow_empty = True),
+    resource_strip_prefix = "flink-examples/flink-examples-streaming/src/main/resources",
+    deps = [
+        "//flink-clients",
+        "//flink-connectors/flink-connector-datagen",
+        "//flink-connectors/flink-connector-files",
+        "//flink-connectors/flink-file-sink-common",
+        "//flink-core",
+        "//flink-core-api",
+        "//flink-datastream-api",
+        "//flink-formats/flink-csv",
+        "//flink-metrics/flink-metrics-core",
+        "//flink-runtime",
+        "//flink-state-backends/flink-statebackend-forst",
+        "//flink-state-backends/flink-statebackend-rocksdb",
+        "//flink-streaming-java",
+        "@flink_shaded//:org_apache_flink_flink_shaded_jackson",
+        "@maven//:com_google_code_findbugs_jsr305",
+        "@maven//:org_slf4j_slf4j_api",
+    ],
+    visibility = ["//visibility:public"],
+)
+
+flink_java_tests(
+    name = "tests",
+    deps = [":flink-examples-streaming"],
+)

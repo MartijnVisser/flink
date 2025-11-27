@@ -1,0 +1,64 @@
+# Licensed to the Apache Software Foundation (ASF) under one or more
+# contributor license agreements.  See the NOTICE file distributed with
+# this work for additional information regarding copyright ownership.
+# The ASF licenses this file to You under the Apache License, Version 2.0
+# (the "License"); you may not use this file except in compliance with
+# the License.  You may obtain a copy of the License at
+#
+#    http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+
+"""
+BUILD file for flink-s3-fs-presto module.
+
+This module provides S3 filesystem implementation using Presto's S3 connector.
+"""
+
+load("//tools/bazel:java_library_suite.bzl", "flink_java_library", "flink_java_tests")
+
+flink_java_library(
+    name = "flink-s3-fs-presto",
+    srcs = glob(["src/main/java/**/*.java"]),
+    resources = glob(["src/main/resources/**/*"], allow_empty = True),
+    resource_strip_prefix = "flink-filesystems/flink-s3-fs-presto/src/main/resources",
+    deps = [
+        # Core Flink dependencies
+        "//flink-annotations",
+        "//flink-core",
+
+        # Hadoop filesystem adapter (uses HadoopConfigLoader)
+        "//flink-filesystems/flink-hadoop-fs",
+
+        # S3 filesystem base
+        "//flink-filesystems/flink-s3-fs-base",
+
+        # Presto dependencies (from hadoop_3_3_4 maven_install)
+        "@hadoop_3_3_4//:com_facebook_presto_presto_hive",
+        "@hadoop_3_3_4//:com_facebook_presto_hadoop_hadoop_apache2",
+
+        # AWS SDK dependencies (from hadoop_3_3_4 maven_install)
+        "@hadoop_3_3_4//:com_amazonaws_aws_java_sdk_core",
+        "@hadoop_3_3_4//:com_amazonaws_aws_java_sdk_s3",
+
+        # JAXB for Java 11+ (from hadoop_3_3_4 maven_install)
+        "@hadoop_3_3_4//:javax_xml_bind_jaxb_api",
+
+        # Logging (from hadoop_3_3_4 maven_install)
+        "@hadoop_3_3_4//:org_slf4j_slf4j_api",
+
+        # JSR305 (from hadoop_3_3_4 maven_install)
+        "@hadoop_3_3_4//:com_google_code_findbugs_jsr305",
+    ],
+    visibility = ["//visibility:public"],
+)
+
+flink_java_tests(
+    name = "tests",
+    deps = [":flink-s3-fs-presto"],
+)

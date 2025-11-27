@@ -1,0 +1,77 @@
+# Licensed to the Apache Software Foundation (ASF) under one or more
+# contributor license agreements.  See the NOTICE file distributed with
+# this work for additional information regarding copyright ownership.
+# The ASF licenses this file to You under the Apache License, Version 2.0
+# (the "License"); you may not use this file except in compliance with
+# the License.  You may obtain a copy of the License at
+#
+#    http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+
+"""
+BUILD file for flink-table-api-scala-bridge module.
+
+This module contains the Scala-specific bridge between the Table API and DataStream API.
+"""
+
+load("@io_bazel_rules_scala//scala:scala.bzl", "scala_library")
+load("//tools/bazel:scala_library_suite.bzl", "flink_scala_tests")
+
+# Main library target
+# Using scala_library directly to disable -Xfatal-warnings
+scala_library(
+    name = "flink-table-api-scala-bridge",
+    srcs = glob(["src/main/scala/**/*.scala"]),
+    resources = glob(["src/main/resources/**/*"], allow_empty = True),
+    resource_strip_prefix = "flink-table/flink-table-api-scala-bridge/src/main/resources",
+    deps = [
+        # Core Flink dependencies
+        "//flink-annotations",
+        "//flink-core-api",
+        "//flink-core",
+        "//flink-datastream-api",
+        "//flink-streaming-java",
+        "//flink-datastream",
+        "//flink-runtime",  # Contains DataStream in org.apache.flink.streaming.api.datastream
+
+        # Table API dependencies
+        "//flink-table/flink-table-common",
+        "//flink-table/flink-table-api-java",
+        "//flink-table/flink-table-api-java-bridge",
+        "//flink-table/flink-table-api-scala",  # Contains macros - also in exports
+        "//flink-table/flink-table-api-bridge-base",
+
+        # Scala dependencies (must be explicit when not using macro)
+        "@maven//:org_scala_lang_scala_library",
+        "@maven//:org_scala_lang_scala_reflect",
+        "@maven//:org_scala_lang_scala_compiler",  # Needed for macro support
+    ],
+    # Add macro library to exports - attempt to force full JAR usage
+    exports = [
+        "//flink-table/flink-table-api-scala",
+    ],
+    # Scala compiler options without -Xfatal-warnings to allow deprecation warnings
+    scalacopts = [
+        "-nobootcp",
+        "-encoding",
+        "UTF-8",
+        "-deprecation",
+        "-feature",
+        "-unchecked",
+        # Removed: "-Xfatal-warnings",  # Allow deprecation warnings
+        "-Xlint",
+    ],
+    visibility = ["//visibility:public"],
+)
+
+# Tests
+flink_scala_tests(
+    name = "tests",
+    deps = [":flink-table-api-scala-bridge"],
+)

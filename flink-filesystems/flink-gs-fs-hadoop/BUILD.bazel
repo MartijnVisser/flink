@@ -1,0 +1,60 @@
+# Licensed to the Apache Software Foundation (ASF) under one or more
+# contributor license agreements.  See the NOTICE file distributed with
+# this work for additional information regarding copyright ownership.
+# The ASF licenses this file to You under the Apache License, Version 2.0
+# (the "License"); you may not use this file except in compliance with
+# the License.  You may obtain a copy of the License at
+#
+#    http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+
+"""
+BUILD file for flink-gs-fs-hadoop module.
+
+This module provides Google Cloud Storage filesystem implementation using Hadoop's GCS connector.
+"""
+
+load("//tools/bazel:java_library_suite.bzl", "flink_java_library", "flink_java_tests")
+
+flink_java_library(
+    name = "flink-gs-fs-hadoop",
+    srcs = glob(["src/main/java/**/*.java"]),
+    resources = glob(["src/main/resources/**/*"], allow_empty = True),
+    resource_strip_prefix = "flink-filesystems/flink-gs-fs-hadoop/src/main/resources",
+    deps = [
+        # Core Flink dependencies
+        "//flink-annotations",
+        "//flink-core",
+
+        # Hadoop filesystem adapter
+        "//flink-filesystems/flink-hadoop-fs",
+
+        # Hadoop 3.3.4 dependencies (from separate maven_install)
+        "@hadoop_3_3_4//:org_apache_hadoop_hadoop_common",
+
+        # Google Cloud Storage dependencies (from hadoop_3_3_4 maven_install)
+        "@hadoop_3_3_4//:com_google_cloud_google_cloud_storage",
+        "@hadoop_3_3_4//:com_google_cloud_bigdataoss_gcs_connector",
+
+        # JAXB for Java 11+ (from hadoop_3_3_4 maven_install)
+        "@hadoop_3_3_4//:javax_xml_bind_jaxb_api",
+
+        # Logging (from hadoop_3_3_4 maven_install)
+        "@hadoop_3_3_4//:org_slf4j_slf4j_api",
+
+        # JSR305 (from hadoop_3_3_4 maven_install)
+        "@hadoop_3_3_4//:com_google_code_findbugs_jsr305",
+    ],
+    visibility = ["//visibility:public"],
+)
+
+flink_java_tests(
+    name = "tests",
+    deps = [":flink-gs-fs-hadoop"],
+)

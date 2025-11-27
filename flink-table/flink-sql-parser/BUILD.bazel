@@ -1,0 +1,185 @@
+# Licensed to the Apache Software Foundation (ASF) under one or more
+# contributor license agreements.  See the NOTICE file distributed with
+# this work for additional information regarding copyright ownership.
+# The ASF licenses this file to You under the Apache License, Version 2.0
+# (the "License"); you may not use this file except in compliance with
+# the License.  You may obtain a copy of the License at
+#
+#    http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+
+"""
+BUILD file for flink-sql-parser module.
+
+This module provides the SQL parser for Flink Table API.
+Uses Calcite parser infrastructure with custom Flink SQL extensions.
+
+Code Generation Strategy:
+- FMPP processes the Parser.jj template with Flink-specific customizations
+- JavaCC generates Java parser classes from the processed Parser.jj
+- Both tools are managed by Bazel via Maven artifacts, fully Maven-free
+"""
+
+load("//tools/bazel:java_library_suite.bzl", "flink_java_library", "flink_java_tests")
+
+# Create a java_binary wrapper for FMPP
+java_binary(
+    name = "fmpp_tool",
+    main_class = "fmpp.tools.CommandLine",
+    runtime_deps = [
+        "@maven//:net_sourceforge_fmpp_fmpp",
+        "@maven//:org_freemarker_freemarker",
+        "@maven//:org_apache_extras_beanshell_bsh",
+    ],
+)
+
+# Create a java_binary wrapper for JavaCC
+java_binary(
+    name = "javacc_tool",
+    main_class = "javacc",
+    runtime_deps = [
+        "@maven//:net_java_dev_javacc_javacc",
+    ],
+)
+
+# Step 1: Run FMPP to process the Parser.jj template
+# This merges Calcite's base parser template with Flink's custom SQL extensions
+genrule(
+    name = "fmpp_parser_gen",
+    srcs = glob([
+        "src/main/codegen/**/*",
+    ]),
+    outs = ["parser_generated/Parser.jj"],
+    cmd = """
+        # Get absolute paths
+        FMPP_TOOL=$$(pwd)/$(location :fmpp_tool)
+        SRC_CODEGEN=$$(pwd)/flink-table/flink-sql-parser/src/main/codegen
+        FINAL_OUTPUT=$$(pwd)/$$(dirname $(location parser_generated/Parser.jj))
+
+        # Create a working directory and copy entire codegen structure (like Maven does)
+        # Use -L to follow symlinks (Bazel uses symlinks in the sandbox)
+        WORK_DIR=$$(mktemp -d)
+        cp -rL $$SRC_CODEGEN/* $$WORK_DIR/
+
+        # Create output directory within work dir
+        mkdir -p $$WORK_DIR/output
+
+        # Run FMPP with absolute paths (like Maven plugin does)
+        $$FMPP_TOOL \\
+            -C $$WORK_DIR/config.fmpp \\
+            -S $$WORK_DIR/templates \\
+            -O $$WORK_DIR/output
+
+        # Move the generated Parser.jj to the final output location
+        # FMPP creates the file in output/javacc/Parser.jj
+        mv $$WORK_DIR/output/javacc/Parser.jj $$FINAL_OUTPUT/
+
+        # Clean up
+        rm -rf $$WORK_DIR
+    """,
+    tools = [":fmpp_tool"],
+    message = "Running FMPP to generate Parser.jj",
+)
+
+# Step 2: Run JavaCC to generate Java parser classes from the processed Parser.jj
+genrule(
+    name = "javacc_parser_gen",
+    srcs = [":fmpp_parser_gen"],
+    outs = [
+        "org/apache/flink/sql/parser/impl/FlinkSqlParserImpl.java",
+        "org/apache/flink/sql/parser/impl/FlinkSqlParserImplConstants.java",
+        "org/apache/flink/sql/parser/impl/FlinkSqlParserImplTokenManager.java",
+        "org/apache/flink/sql/parser/impl/ParseException.java",
+        "org/apache/flink/sql/parser/impl/SimpleCharStream.java",
+        "org/apache/flink/sql/parser/impl/Token.java",
+        "org/apache/flink/sql/parser/impl/TokenMgrError.java",
+    ],
+    cmd = """
+        # Run JavaCC with options matching Maven configuration using the java_binary wrapper
+        $(location :javacc_tool) \\
+            -LOOKAHEAD=1 \\
+            -STATIC=false \\
+            -OUTPUT_DIRECTORY=$$(dirname $(location org/apache/flink/sql/parser/impl/FlinkSqlParserImpl.java)) \\
+            $(location :fmpp_parser_gen)
+    """,
+    tools = [":javacc_tool"],
+    message = "Running JavaCC to generate parser classes",
+)
+
+# Main library target
+flink_java_library(
+    name = "flink-sql-parser",
+    srcs = glob([
+        "src/main/java/**/*.java",
+    ]) + [
+        # Include generated JavaCC parser sources from Bazel genrules
+        ":javacc_parser_gen",
+    ],
+    resources = glob(["src/main/resources/**/*"], allow_empty = True),
+    resource_strip_prefix = "flink-table/flink-sql-parser/src/main/resources",
+    deps = [
+        # Core Flink dependencies
+        "//flink-annotations",
+        "//flink-core",
+        "//flink-table/flink-table-common",
+
+        # Calcite dependencies
+        "@maven//:org_apache_calcite_calcite_core",
+        "@maven//:org_apache_calcite_avatica_avatica_core",
+
+        # Code generation
+        "@maven//:org_codehaus_janino_janino",
+        "@maven//:org_codehaus_janino_commons_compiler",
+
+        # Commons
+        "@maven//:org_apache_commons_commons_lang3",
+        "@maven//:org_apache_commons_commons_math3",
+        "@maven//:commons_codec_commons_codec",
+
+        # Guava
+        "@maven//:com_google_guava_guava",
+
+        # Checker framework
+        "@maven//:org_checkerframework_checker_qual",
+
+        # Logging
+        "@maven//:org_slf4j_slf4j_api",
+
+        # JSR305
+        "@maven//:com_google_code_findbugs_jsr305",
+    ],
+    visibility = ["//visibility:public"],
+)
+
+# Tests
+flink_java_tests(
+    name = "tests",
+    # TODO: Build Calcite test-jar or inline necessary test utilities (see java_library_suite.bzl:302-306)
+    # These tests pass in Maven but are excluded in Bazel - they require classes from calcite-core
+    # test-jar that aren't available. See global exclusion list in tools/bazel/java_library_suite.bzl
+    srcs = glob(
+        ["src/test/java/**/*Test.java"],
+        exclude = [
+            # Calcite test-jar dependencies (SqlParserFixture, SqlParserTest, SqlTestFactory, SqlTests)
+            "src/test/java/**/FlinkDDLDataTypeTest.java",
+            "src/test/java/**/FlinkSqlParserImplTest.java",
+            "src/test/java/**/FlinkSqlUnParserTest.java",
+            "src/test/java/**/MaterializedTableStatementParserTest.java",
+            "src/test/java/**/MaterializedTableStatementUnParserTest.java",
+        ],
+    ),
+    deps = [
+        ":flink-sql-parser",
+        # Direct dependencies to fix strict dependency warnings
+        "//flink-table/flink-table-common",
+        "@maven//:org_apache_calcite_calcite_core",
+        "@maven//:org_apache_calcite_avatica_avatica_core",  # For Quoting enum
+        "@maven//:com_google_code_findbugs_jsr305",
+    ],
+)

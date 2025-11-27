@@ -1,0 +1,86 @@
+# Licensed to the Apache Software Foundation (ASF) under one or more
+# contributor license agreements.  See the NOTICE file distributed with
+# this work for additional information regarding copyright ownership.
+# The ASF licenses this file to You under the Apache License, Version 2.0
+# (the "License"); you may not use this file except in compliance with
+# the License.  You may obtain a copy of the License at
+#
+#    http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+
+"""
+BUILD file for flink-datastream-allround-test.
+
+E2E test module for comprehensive DataStream API testing.
+"""
+
+load("//tools/bazel:java_library_suite.bzl", "flink_java_library", "flink_java_tests")
+
+# Generate Java classes from Avro schema using avro-tools
+genrule(
+    name = "generate_avro",
+    srcs = ["src/main/resources/avro/ComplexPayloadAvro.avsc"],
+    outs = [
+        "avro_generated/org/apache/flink/streaming/tests/avro/ComplexPayloadAvro.java",
+        "avro_generated/org/apache/flink/streaming/tests/avro/InnerPayLoadAvro.java",
+    ],
+    cmd = """
+        # Create output directory
+        mkdir -p $(@D)/avro_generated
+
+        # Run avro-tools JAR to generate Java from schema
+        # Use -string flag to generate java.lang.String instead of Avro Utf8
+        java -jar $(location @maven//:org_apache_avro_avro_tools) compile -string schema $(SRCS) $(@D)/avro_generated
+    """,
+    tools = ["@maven//:org_apache_avro_avro_tools"],
+)
+
+# Wrap generated Java sources in a java_library
+java_library(
+    name = "avro_generated",
+    srcs = [":generate_avro"],
+    deps = ["@maven//:org_apache_avro_avro"],
+)
+
+flink_java_library(
+    name = "flink-datastream-allround-test",
+    srcs = glob(["src/main/java/**/*.java"]),
+    resources = glob(["src/main/resources/**/*"], allow_empty = True),
+    resource_strip_prefix = "flink-end-to-end-tests/flink-datastream-allround-test/src/main/resources",
+    testonly = True,
+    deps = [
+        ":avro_generated",  # Bazel-generated Avro classes
+        # Core Flink APIs (needed for MapFunction, JoinFunction, ValueStateDescriptor, etc.)
+        "//flink-core-api",
+        "//flink-core",
+        "//flink-runtime",
+        # Annotations (direct dependency to avoid strict warnings)
+        "//flink-annotations",
+        # DataStream API
+        "//flink-streaming-java",
+        # State backends
+        "//flink-state-backends/flink-statebackend-rocksdb",
+        # Formats
+        "//flink-formats/flink-avro",
+        # Annotations
+        "@maven//:com_google_code_findbugs_jsr305",
+    ],
+    visibility = ["//visibility:public"],
+)
+
+flink_java_tests(
+    name = "tests",
+    deps = [
+        ":flink-datastream-allround-test",
+        "//flink-runtime:flink-runtime-test-jar",  # For MiniClusterResourceConfiguration
+        # Log4j 1.2 API bridge (provides log4j 1.x API via log4j 2.x)
+        # AllroundMiniClusterTest uses log4j PropertyConfigurator at compile time
+        "@maven//:org_apache_logging_log4j_log4j_1_2_api",
+    ],
+)

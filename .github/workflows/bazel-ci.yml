@@ -1,0 +1,969 @@
+# Licensed to the Apache Software Foundation (ASF) under one or more
+# contributor license agreements.  See the NOTICE file distributed with
+# this work for additional information regarding copyright ownership.
+# The ASF licenses this file to You under the Apache License, Version 2.0
+# (the "License"); you may not use this file except in compliance with
+# the License.  You may obtain a copy of the License at
+#
+#    http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# Bazel-based CI workflow for Apache Flink
+# This workflow validates the Bazel build system migration
+
+name: "Flink Bazel CI"
+
+on:
+  push:
+    branches:
+      - experiment-migrate-to-bazel
+  pull_request:
+    branches:
+      - master
+      - experiment-migrate-to-bazel
+  workflow_dispatch:
+
+permissions: read-all
+
+jobs:
+  # Pre-flight checks
+  pre-checks:
+    name: "Pre-flight Checks"
+    runs-on: ubuntu-24.04
+    steps:
+      - name: "Checkout Flink"
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: "Check Bazel files exist"
+        run: |
+          echo "Checking for WORKSPACE file..."
+          test -f WORKSPACE || (echo "ERROR: WORKSPACE file not found" && exit 1)
+          echo "✓ WORKSPACE found"
+
+          echo "Checking for .bazelrc file..."
+          test -f .bazelrc || (echo "ERROR: .bazelrc file not found" && exit 1)
+          echo "✓ .bazelrc found"
+
+          echo "Checking for BUILD.bazel files..."
+          BUILD_COUNT=$(find . -name "BUILD.bazel" -not -path "*/node_modules/*" -not -path "*/bazel-*" | wc -l)
+          echo "Found $BUILD_COUNT BUILD.bazel files"
+          test "$BUILD_COUNT" -gt 50 || (echo "ERROR: Expected more than 50 BUILD files" && exit 1)
+          echo "✓ BUILD.bazel files present"
+
+      - name: "Verify verification script"
+        run: |
+          test -f verify_bazel_build.sh || (echo "ERROR: verify_bazel_build.sh not found" && exit 1)
+          test -x verify_bazel_build.sh || chmod +x verify_bazel_build.sh
+          echo "✓ Verification script found and executable"
+
+  # Install Bazel and build
+  build:
+    name: "Bazel Build (All Modules)"
+    runs-on: ubuntu-24.04
+    needs: pre-checks
+    timeout-minutes: 90
+    steps:
+      - name: "Checkout Flink"
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: "Free up disk space"
+        run: |
+          echo "Disk space before cleanup:"
+          df -h
+
+          # Remove large pre-installed tools we don't need
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /usr/local/lib/android
+          sudo rm -rf /opt/ghc
+          sudo rm -rf /opt/hostedtoolcache/CodeQL
+          sudo rm -rf "$AGENT_TOOLSDIRECTORY"
+
+          # Docker cleanup
+          sudo docker image prune --all --force
+          sudo docker builder prune --all --force
+
+          echo "Disk space after cleanup:"
+          df -h
+
+      - name: "Set up JDK 17"
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: "Set up Maven 3.8.6 for code generation"
+        uses: stCarolas/setup-maven@v5
+        with:
+          maven-version: '3.8.6'
+
+      - name: "Set up Bazel"
+        uses: bazel-contrib/setup-bazel@0.15.0
+        with:
+          # Bazelisk will automatically use the version from .bazelversion
+          bazelisk-cache: true
+
+      - name: "Setup Node.js for Web UI"
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22.16.0'
+
+      - name: "Mount Bazel cache"
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/bazel
+            ~/.cache/bazelisk
+          key: bazel-cache-${{ runner.os }}-${{ hashFiles('WORKSPACE', '.bazelrc', '**/BUILD.bazel') }}
+          restore-keys: |
+            bazel-cache-${{ runner.os }}-
+
+      - name: "Generate code for flink-table-planner"
+        run: |
+          echo "Pre-generating Immutables sources for flink-table-planner..."
+          echo "Building flink-sql-parser (dependency) and flink-table-planner..."
+
+          # Build from flink-table parent to ensure proper dependency resolution
+          cd flink-table
+          mvn compile -DskipTests -Drat.skip=true -Dcheckstyle.skip=true -Denforcer.skip=true \
+            -pl flink-sql-parser,flink-table-planner -am
+          cd ..
+
+          # Copy generated sources to where Bazel expects them
+          echo "Copying generated sources to src/main/java-generated/..."
+          mkdir -p flink-table/flink-table-planner/src/main/java-generated
+          cp -r flink-table/flink-table-planner/target/generated-sources/annotations/* \
+            flink-table/flink-table-planner/src/main/java-generated/
+
+          echo "✓ Generated sources created and copied to Bazel source location"
+
+      - name: "Build test-jars with Maven"
+        run: |
+          echo "Building test-jars with Maven (hybrid Maven/Bazel approach)..."
+          echo "These JARs will be imported by Bazel to avoid circular dependencies."
+          echo ""
+          echo "Building flink-core, flink-runtime, flink-metrics-core, and flink-test-utils with test-jars..."
+
+          mvn clean package -DskipTests -Drat.skip=true -Dcheckstyle.skip=true -Denforcer.skip=true \
+            -pl flink-core,flink-runtime,flink-metrics/flink-metrics-core,flink-test-utils-parent/flink-test-utils,flink-table/flink-table-common,flink-table/flink-table-planner -am
+
+          echo "✓ Test JARs created:"
+          ls -lh flink-core/target/flink-core-*-tests.jar
+          ls -lh flink-runtime/target/flink-runtime-*-tests.jar
+          ls -lh flink-metrics/flink-metrics-core/target/flink-metrics-core-*-tests.jar
+          ls -lh flink-test-utils-parent/flink-test-utils/target/flink-test-utils-2.3-SNAPSHOT.jar
+          ls -lh flink-table/flink-table-common/target/flink-table-common-*-tests.jar
+          ls -lh flink-table/flink-table-planner/target/flink-table-planner_*-tests.jar
+
+      - name: "Run Bazel verification script"
+        run: |
+          chmod +x verify_bazel_build.sh
+          ./verify_bazel_build.sh
+
+      - name: "Build full distribution"
+        run: |
+          bazel build //flink-dist:flink-distribution
+
+      - name: "Extract distribution for testing"
+        run: |
+          bazel build //flink-dist:build-target
+          ls -lh build-target/lib/ | head -20
+
+      - name: "Verify distribution structure"
+        run: |
+          echo "Checking distribution structure..."
+          test -d build-target/bin || (echo "ERROR: bin/ directory missing" && exit 1)
+          test -d build-target/lib || (echo "ERROR: lib/ directory missing" && exit 1)
+          test -d build-target/conf || (echo "ERROR: conf/ directory missing" && exit 1)
+          test -d build-target/opt || (echo "ERROR: opt/ directory missing" && exit 1)
+          test -d build-target/plugins || (echo "ERROR: plugins/ directory missing" && exit 1)
+          test -d build-target/examples || (echo "ERROR: examples/ directory missing" && exit 1)
+          echo "✓ All directories present"
+
+          echo "Checking key JARs..."
+          test -f build-target/lib/flink-dist-2.3-SNAPSHOT.jar || (echo "ERROR: flink-dist JAR missing" && exit 1)
+          test -f build-target/lib/flink-runtime-web.jar || (echo "ERROR: flink-runtime-web JAR missing" && exit 1)
+          echo "✓ Key JARs present"
+
+          echo "Verifying web resources in flink-runtime-web.jar..."
+          WEB_COUNT=$(jar -tf build-target/lib/flink-runtime-web.jar | grep "^web/" | wc -l)
+          echo "Found $WEB_COUNT web resources"
+          test "$WEB_COUNT" -gt 200 || (echo "ERROR: Expected >200 web resources, got $WEB_COUNT" && exit 1)
+          echo "✓ Web resources embedded correctly"
+
+      - name: "Upload distribution artifact"
+        uses: actions/upload-artifact@v4
+        with:
+          name: flink-bazel-distribution
+          path: bazel-bin/flink-dist/flink-2.3-SNAPSHOT.tar.gz
+          retention-days: 7
+
+      - name: "Upload test-jar artifacts"
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-jars
+          path: |
+            flink-core/target/flink-core-*-tests.jar
+            flink-runtime/target/flink-runtime-*-tests.jar
+            flink-metrics/flink-metrics-core/target/flink-metrics-core-*-tests.jar
+            flink-test-utils-parent/flink-test-utils/target/flink-test-utils-*.jar
+            flink-table/flink-table-common/target/flink-table-common-*-tests.jar
+            flink-table/flink-table-planner/target/flink-table-planner_*-tests.jar
+          retention-days: 7
+
+  # Run unit tests - Core modules (matching Maven CI CORE stage)
+  test-core:
+    name: "Test Core Modules"
+    runs-on: ubuntu-24.04
+    needs: build
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        module:
+          # Core infrastructure (only modules with :tests targets)
+          - //flink-core-api:tests
+          - //flink-core:tests
+          - //flink-runtime:tests
+          - //flink-streaming-java:tests
+          - //flink-clients:tests
+          - //flink-runtime-web:tests
+          - //flink-datastream:tests
+          # RPC modules
+          - //flink-rpc/flink-rpc-core:tests
+          - //flink-rpc/flink-rpc-akka:tests
+          # State backends
+          - //flink-state-backends/flink-statebackend-common:tests
+          - //flink-state-backends/flink-statebackend-rocksdb:tests
+          - //flink-state-backends/flink-statebackend-forst:tests
+          - //flink-state-backends/flink-statebackend-heap-spillable:tests
+          - //flink-state-backends/flink-statebackend-changelog:tests
+          # Metrics
+          - //flink-metrics/flink-metrics-core:tests
+          # External resources
+          - //flink-external-resources/flink-external-resource-gpu:tests
+          # Libraries
+          - //flink-libraries/flink-cep:tests
+          - //flink-libraries/flink-state-processing-api:tests
+          # Queryable state
+          - //flink-queryable-state/flink-queryable-state-runtime:tests
+          - //flink-queryable-state/flink-queryable-state-client-java:tests
+          # Other core modules
+          - //flink-container:tests
+          - //flink-dstl/flink-dstl-dfs:tests
+          # Test utilities
+          - //flink-test-utils-parent/flink-test-utils-junit:tests
+          - //flink-test-utils-parent/flink-test-utils:tests
+          - //flink-test-utils-parent/flink-connector-test-utils:tests
+          - //flink-test-utils-parent/flink-table-filesystem-test-utils:tests
+          - //flink-test-utils-parent/flink-test-utils-connector:tests
+    steps:
+      - name: "Checkout Flink"
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: "Free up disk space"
+        run: |
+          echo "Disk space before cleanup:"
+          df -h
+
+          # Remove large pre-installed tools we don't need
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /usr/local/lib/android
+          sudo rm -rf /opt/ghc
+          sudo rm -rf /opt/hostedtoolcache/CodeQL
+          sudo rm -rf "$AGENT_TOOLSDIRECTORY"
+
+          # Docker cleanup
+          sudo docker image prune --all --force
+          sudo docker builder prune --all --force
+
+          echo "Disk space after cleanup:"
+          df -h
+
+      - name: "Set up JDK 17"
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: "Set up Bazel"
+        uses: bazel-contrib/setup-bazel@0.15.0
+        with:
+          bazelisk-cache: true
+
+      - name: "Mount Bazel cache"
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/bazel
+            ~/.cache/bazelisk
+          key: bazel-cache-${{ runner.os }}-${{ hashFiles('WORKSPACE', '.bazelrc', '**/BUILD.bazel') }}
+          restore-keys: |
+            bazel-cache-${{ runner.os }}-
+
+      - name: "Download test-jar artifacts"
+        uses: actions/download-artifact@v4
+        with:
+          name: test-jars
+          path: .
+
+      - name: "Run tests for ${{ matrix.module }}"
+        run: |
+          # Extract module name for log files
+          MODULE_NAME=$(echo "${{ matrix.module }}" | sed 's|//||' | sed 's|:|_|g' | sed 's|/|_|g')
+
+          # Run tests with build event logging
+          # Logs will be uploaded even on failure via if: always()
+          bazel test ${{ matrix.module }} \
+            --test_output=errors \
+            --build_event_json_file=build-events-${MODULE_NAME}.json
+
+      - name: "Upload test logs and build events"
+        if: always()  # Always upload logs, even on failure
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-logs-core-${{ github.run_id }}-${{ strategy.job-index }}
+          path: |
+            bazel-testlogs/**/*.log
+            bazel-testlogs/**/*.xml
+            build-events-*.json
+          retention-days: 7
+          if-no-files-found: ignore
+
+  # Test Table modules (matching Maven CI TABLE stage)
+  test-table:
+    name: "Test Table Modules"
+    runs-on: ubuntu-24.04
+    needs: build
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        module:
+          # Only modules with :tests targets
+          - //flink-table/flink-sql-parser:tests
+          - //flink-table/flink-table-common:tests
+          - //flink-table/flink-table-api-java:tests
+          - //flink-table/flink-table-api-java-bridge:tests
+          - //flink-table/flink-sql-client:tests
+          - //flink-table/flink-sql-gateway-api:tests
+          - //flink-table/flink-sql-gateway:tests
+          - //flink-table/flink-table-runtime:tests
+          - //flink-table/flink-table-code-splitter:tests
+          - //flink-table/flink-sql-jdbc-driver:tests
+    steps:
+      - name: "Checkout Flink"
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: "Free up disk space"
+        run: |
+          echo "Disk space before cleanup:"
+          df -h
+
+          # Remove large pre-installed tools we don't need
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /usr/local/lib/android
+          sudo rm -rf /opt/ghc
+          sudo rm -rf /opt/hostedtoolcache/CodeQL
+          sudo rm -rf "$AGENT_TOOLSDIRECTORY"
+
+          # Docker cleanup
+          sudo docker image prune --all --force
+          sudo docker builder prune --all --force
+
+          echo "Disk space after cleanup:"
+          df -h
+
+      - name: "Set up JDK 17"
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: "Set up Bazel"
+        uses: bazel-contrib/setup-bazel@0.15.0
+        with:
+          bazelisk-cache: true
+
+      - name: "Mount Bazel cache"
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/bazel
+            ~/.cache/bazelisk
+          key: bazel-cache-${{ runner.os }}-${{ hashFiles('WORKSPACE', '.bazelrc', '**/BUILD.bazel') }}
+          restore-keys: |
+            bazel-cache-${{ runner.os }}-
+
+      - name: "Download test-jar artifacts"
+        uses: actions/download-artifact@v4
+        with:
+          name: test-jars
+          path: .
+
+      - name: "Run tests for ${{ matrix.module }}"
+        run: |
+          # Extract module name for log files
+          MODULE_NAME=$(echo "${{ matrix.module }}" | sed 's|//||' | sed 's|:|_|g' | sed 's|/|_|g')
+
+          # Run tests with build event logging
+          # Logs will be uploaded even on failure via if: always()
+          bazel test ${{ matrix.module }} \
+            --test_output=errors \
+            --build_event_json_file=build-events-${MODULE_NAME}.json
+
+      - name: "Upload test logs and build events"
+        if: always()  # Always upload logs, even on failure
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-logs-table-${{ github.run_id }}-${{ strategy.job-index }}
+          path: |
+            bazel-testlogs/**/*.log
+            bazel-testlogs/**/*.xml
+            build-events-*.json
+          retention-days: 7
+          if-no-files-found: ignore
+
+  # Test Connector & Format modules (matching Maven CI CONNECTORS stage)
+  test-connectors:
+    name: "Test Connectors & Formats"
+    runs-on: ubuntu-24.04
+    needs: build
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        module:
+          # Filesystems (all have tests)
+          - //flink-filesystems/flink-azure-fs-hadoop:tests
+          - //flink-filesystems/flink-gs-fs-hadoop:tests
+          - //flink-filesystems/flink-hadoop-fs:tests
+          - //flink-filesystems/flink-oss-fs-hadoop:tests
+          - //flink-filesystems/flink-s3-fs-base:tests
+          - //flink-filesystems/flink-s3-fs-hadoop:tests
+          - //flink-filesystems/flink-s3-fs-presto:tests
+          # Formats (all have tests)
+          - //flink-formats/flink-avro-confluent-registry:tests
+          - //flink-formats/flink-avro:tests
+          - //flink-formats/flink-compress:tests
+          - //flink-formats/flink-hadoop-bulk:tests
+          - //flink-formats/flink-parquet:tests
+          - //flink-formats/flink-sequence-file:tests
+          - //flink-formats/flink-json:tests
+          - //flink-formats/flink-csv:tests
+          - //flink-formats/flink-orc:tests
+          - //flink-formats/flink-orc-nohive:tests
+          - //flink-formats/flink-protobuf:tests
+          # Connectors
+          - //flink-connectors/flink-file-sink-common:tests
+          - //flink-connectors/flink-hadoop-compatibility:tests
+          - //flink-connectors/flink-connector-files:tests
+          - //flink-connectors/flink-connector-base:tests
+          # Metrics reporters (all have tests)
+          - //flink-metrics/flink-metrics-dropwizard:tests
+          - //flink-metrics/flink-metrics-graphite:tests
+          - //flink-metrics/flink-metrics-jmx:tests
+          - //flink-metrics/flink-metrics-influxdb:tests
+          - //flink-metrics/flink-metrics-prometheus:tests
+          - //flink-metrics/flink-metrics-statsd:tests
+          - //flink-metrics/flink-metrics-datadog:tests
+          - //flink-metrics/flink-metrics-slf4j:tests
+          - //flink-metrics/flink-metrics-otel:tests
+          # Models
+          - //flink-models/flink-model-openai:tests
+    steps:
+      - name: "Checkout Flink"
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: "Free up disk space"
+        run: |
+          echo "Disk space before cleanup:"
+          df -h
+
+          # Remove large pre-installed tools we don't need
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /usr/local/lib/android
+          sudo rm -rf /opt/ghc
+          sudo rm -rf /opt/hostedtoolcache/CodeQL
+          sudo rm -rf "$AGENT_TOOLSDIRECTORY"
+
+          # Docker cleanup
+          sudo docker image prune --all --force
+          sudo docker builder prune --all --force
+
+          echo "Disk space after cleanup:"
+          df -h
+
+      - name: "Set up JDK 17"
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: "Set up Bazel"
+        uses: bazel-contrib/setup-bazel@0.15.0
+        with:
+          bazelisk-cache: true
+
+      - name: "Mount Bazel cache"
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/bazel
+            ~/.cache/bazelisk
+          key: bazel-cache-${{ runner.os }}-${{ hashFiles('WORKSPACE', '.bazelrc', '**/BUILD.bazel') }}
+          restore-keys: |
+            bazel-cache-${{ runner.os }}-
+
+      - name: "Download test-jar artifacts"
+        uses: actions/download-artifact@v4
+        with:
+          name: test-jars
+          path: .
+
+      - name: "Run tests for ${{ matrix.module }}"
+        run: |
+          # Extract module name for log files
+          MODULE_NAME=$(echo "${{ matrix.module }}" | sed 's|//||' | sed 's|:|_|g' | sed 's|/|_|g')
+
+          # Run tests with build event logging
+          # Logs will be uploaded even on failure via if: always()
+          bazel test ${{ matrix.module }} \
+            --test_output=errors \
+            --build_event_json_file=build-events-${MODULE_NAME}.json
+
+      - name: "Upload test logs and build events"
+        if: always()  # Always upload logs, even on failure
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-logs-connectors-${{ github.run_id }}-${{ strategy.job-index }}
+          path: |
+            bazel-testlogs/**/*.log
+            bazel-testlogs/**/*.xml
+            build-events-*.json
+          retention-days: 7
+          if-no-files-found: ignore
+
+  # Test Python module (matching Maven CI PYTHON stage)
+  test-python:
+    name: "Test Python Module"
+    runs-on: ubuntu-24.04
+    needs: build
+    timeout-minutes: 90
+    steps:
+      - name: "Checkout Flink"
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: "Free up disk space"
+        run: |
+          echo "Disk space before cleanup:"
+          df -h
+
+          # Remove large pre-installed tools we don't need
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /usr/local/lib/android
+          sudo rm -rf /opt/ghc
+          sudo rm -rf /opt/hostedtoolcache/CodeQL
+          sudo rm -rf "$AGENT_TOOLSDIRECTORY"
+
+          # Docker cleanup
+          sudo docker image prune --all --force
+          sudo docker builder prune --all --force
+
+          echo "Disk space after cleanup:"
+          df -h
+
+      - name: "Set up JDK 17"
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: "Set up Python 3.12"
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: "Install Python header files"
+        run: sudo apt-get update && sudo apt-get -y install python3-dev
+
+      - name: "Set up Bazel"
+        uses: bazel-contrib/setup-bazel@0.15.0
+        with:
+          bazelisk-cache: true
+
+      - name: "Mount Bazel cache"
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/bazel
+            ~/.cache/bazelisk
+          key: bazel-cache-${{ runner.os }}-${{ hashFiles('WORKSPACE', '.bazelrc', '**/BUILD.bazel') }}
+          restore-keys: |
+            bazel-cache-${{ runner.os }}-
+
+      - name: "Download test-jar artifacts"
+        uses: actions/download-artifact@v4
+        with:
+          name: test-jars
+          path: .
+
+      - name: "Run Python tests"
+        run: |
+          # Logs will be uploaded even on failure via if: always()
+          bazel test //flink-python:tests \
+            --test_output=errors \
+            --build_event_json_file=build-events-python.json
+
+      - name: "Upload test logs and build events"
+        if: always()  # Always upload logs, even on failure
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-logs-python-${{ github.run_id }}
+          path: |
+            bazel-testlogs/**/*.log
+            bazel-testlogs/**/*.xml
+            build-events-*.json
+          retention-days: 7
+          if-no-files-found: ignore
+
+  # Test miscellaneous modules (matching Maven CI MISC stage)
+  test-misc:
+    name: "Test Misc Modules"
+    runs-on: ubuntu-24.04
+    needs: build
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        module:
+          # Only modules with :tests targets
+          - //flink-yarn:tests
+          - //flink-kubernetes:tests
+          - //flink-architecture-tests/flink-architecture-tests-base:tests
+          - //flink-architecture-tests/flink-architecture-tests-production:tests
+          - //flink-docs:tests
+    steps:
+      - name: "Checkout Flink"
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: "Free up disk space"
+        run: |
+          echo "Disk space before cleanup:"
+          df -h
+
+          # Remove large pre-installed tools we don't need
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /usr/local/lib/android
+          sudo rm -rf /opt/ghc
+          sudo rm -rf /opt/hostedtoolcache/CodeQL
+          sudo rm -rf "$AGENT_TOOLSDIRECTORY"
+
+          # Docker cleanup
+          sudo docker image prune --all --force
+          sudo docker builder prune --all --force
+
+          echo "Disk space after cleanup:"
+          df -h
+
+      - name: "Set up JDK 17"
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: "Set up Bazel"
+        uses: bazel-contrib/setup-bazel@0.15.0
+        with:
+          bazelisk-cache: true
+
+      - name: "Mount Bazel cache"
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/bazel
+            ~/.cache/bazelisk
+          key: bazel-cache-${{ runner.os }}-${{ hashFiles('WORKSPACE', '.bazelrc', '**/BUILD.bazel') }}
+          restore-keys: |
+            bazel-cache-${{ runner.os }}-
+
+      - name: "Download test-jar artifacts"
+        uses: actions/download-artifact@v4
+        with:
+          name: test-jars
+          path: .
+
+      - name: "Run tests for ${{ matrix.module }}"
+        run: |
+          # Extract module name for log files
+          MODULE_NAME=$(echo "${{ matrix.module }}" | sed 's|//||' | sed 's|:|_|g' | sed 's|/|_|g')
+
+          # Run tests with build event logging
+          # Logs will be uploaded even on failure via if: always()
+          bazel test ${{ matrix.module }} \
+            --test_output=errors \
+            --build_event_json_file=build-events-${MODULE_NAME}.json
+
+      - name: "Upload test logs and build events"
+        if: always()  # Always upload logs, even on failure
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-logs-misc-${{ github.run_id }}-${{ strategy.job-index }}
+          path: |
+            bazel-testlogs/**/*.log
+            bazel-testlogs/**/*.xml
+            build-events-*.json
+          retention-days: 7
+          if-no-files-found: ignore
+
+  # E2E tests - Group 1 (matching Maven CI e2e_1)
+  e2e-group-1:
+    name: "E2E Tests - Group 1"
+    runs-on: ubuntu-24.04
+    needs: build
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        module:
+          # E2E tests - group 1 (only modules with :tests targets)
+          - //flink-end-to-end-tests/flink-end-to-end-tests-common:tests
+          - //flink-end-to-end-tests/flink-datastream-allround-test:tests
+    steps:
+      - name: "Checkout Flink"
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: "Free up disk space"
+        run: |
+          echo "Disk space before cleanup:"
+          df -h
+
+          # Remove large pre-installed tools we don't need
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /usr/local/lib/android
+          sudo rm -rf /opt/ghc
+          sudo rm -rf /opt/hostedtoolcache/CodeQL
+          sudo rm -rf "$AGENT_TOOLSDIRECTORY"
+
+          # Docker cleanup
+          sudo docker image prune --all --force
+          sudo docker builder prune --all --force
+
+          echo "Disk space after cleanup:"
+          df -h
+
+      - name: "Set up JDK 17"
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: "Set up Bazel"
+        uses: bazel-contrib/setup-bazel@0.15.0
+        with:
+          bazelisk-cache: true
+
+      - name: "Mount Bazel cache"
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/bazel
+            ~/.cache/bazelisk
+          key: bazel-cache-${{ runner.os }}-${{ hashFiles('WORKSPACE', '.bazelrc', '**/BUILD.bazel') }}
+          restore-keys: |
+            bazel-cache-${{ runner.os }}-
+
+      - name: "Download test-jar artifacts"
+        uses: actions/download-artifact@v4
+        with:
+          name: test-jars
+          path: .
+
+      - name: "Run E2E tests for ${{ matrix.module }}"
+        run: |
+          # Extract module name for log files
+          MODULE_NAME=$(echo "${{ matrix.module }}" | sed 's|//||' | sed 's|:|_|g' | sed 's|/|_|g')
+
+          # Run tests with build event logging
+          # Logs will be uploaded even on failure via if: always()
+          bazel test ${{ matrix.module }} \
+            --test_output=errors \
+            --test_timeout=600 \
+            --build_event_json_file=build-events-${MODULE_NAME}.json
+
+      - name: "Upload test logs and build events"
+        if: always()  # Always upload logs, even on failure
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-logs-e2e-group-1-${{ github.run_id }}-${{ strategy.job-index }}
+          path: |
+            bazel-testlogs/**/*.log
+            bazel-testlogs/**/*.xml
+            build-events-*.json
+          retention-days: 7
+          if-no-files-found: ignore
+
+  # E2E tests - Group 2 (matching Maven CI e2e_2)
+  e2e-group-2:
+    name: "E2E Tests - Group 2"
+    runs-on: ubuntu-24.04
+    needs: build
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        module:
+          # E2E tests - group 2 (only modules with :tests targets)
+          - //flink-end-to-end-tests/flink-end-to-end-tests-table-api:tests
+    steps:
+      - name: "Checkout Flink"
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: "Free up disk space"
+        run: |
+          echo "Disk space before cleanup:"
+          df -h
+
+          # Remove large pre-installed tools we don't need
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /usr/local/lib/android
+          sudo rm -rf /opt/ghc
+          sudo rm -rf /opt/hostedtoolcache/CodeQL
+          sudo rm -rf "$AGENT_TOOLSDIRECTORY"
+
+          # Docker cleanup
+          sudo docker image prune --all --force
+          sudo docker builder prune --all --force
+
+          echo "Disk space after cleanup:"
+          df -h
+
+      - name: "Set up JDK 17"
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: "Set up Python 3.12"
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: "Install Python header files"
+        run: sudo apt-get update && sudo apt-get -y install python3-dev
+
+      - name: "Set up Bazel"
+        uses: bazel-contrib/setup-bazel@0.15.0
+        with:
+          bazelisk-cache: true
+
+      - name: "Mount Bazel cache"
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/bazel
+            ~/.cache/bazelisk
+          key: bazel-cache-${{ runner.os }}-${{ hashFiles('WORKSPACE', '.bazelrc', '**/BUILD.bazel') }}
+          restore-keys: |
+            bazel-cache-${{ runner.os }}-
+
+      - name: "Download test-jar artifacts"
+        uses: actions/download-artifact@v4
+        with:
+          name: test-jars
+          path: .
+
+      - name: "Run E2E tests for ${{ matrix.module }}"
+        run: |
+          # Extract module name for log files
+          MODULE_NAME=$(echo "${{ matrix.module }}" | sed 's|//||' | sed 's|:|_|g' | sed 's|/|_|g')
+
+          # Run tests with build event logging
+          # Logs will be uploaded even on failure via if: always()
+          bazel test ${{ matrix.module }} \
+            --test_output=errors \
+            --test_timeout=600 \
+            --build_event_json_file=build-events-${MODULE_NAME}.json
+
+      - name: "Upload test logs and build events"
+        if: always()  # Always upload logs, even on failure
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-logs-e2e-group-2-${{ github.run_id }}-${{ strategy.job-index }}
+          path: |
+            bazel-testlogs/**/*.log
+            bazel-testlogs/**/*.xml
+            build-events-*.json
+          retention-days: 7
+          if-no-files-found: ignore
+
+  # Summary job
+  ci-summary:
+    name: "CI Summary"
+    runs-on: ubuntu-24.04
+    needs: [pre-checks, build, test-core, test-table, test-connectors, test-python, test-misc, e2e-group-1, e2e-group-2]
+    if: always()
+    steps:
+      - name: "Check job results"
+        run: |
+          echo "============================================="
+          echo "Bazel CI Results Summary"
+          echo "============================================="
+          echo "Pre-checks: ${{ needs.pre-checks.result }}"
+          echo "Build (92 modules): ${{ needs.build.result }}"
+          echo ""
+          echo "Unit Tests:"
+          echo "  - Core (27 modules): ${{ needs.test-core.result }}"
+          echo "  - Table (10 modules): ${{ needs.test-table.result }}"
+          echo "  - Connectors (32 modules): ${{ needs.test-connectors.result }}"
+          echo "  - Python (1 module): ${{ needs.test-python.result }}"
+          echo "  - Misc (5 modules): ${{ needs.test-misc.result }}"
+          echo ""
+          echo "E2E Tests:"
+          echo "  - Group 1 (2 modules): ${{ needs.e2e-group-1.result }}"
+          echo "  - Group 2 (1 module): ${{ needs.e2e-group-2.result }}"
+          echo "============================================="
+          echo "Total modules tested: 78"
+          echo "============================================="
+          echo "Note: Testing only modules with defined test targets"
+          echo "Some modules may not have tests migrated yet"
+          echo "============================================="
+
+          if [[ "${{ needs.pre-checks.result }}" != "success" ]] || \
+             [[ "${{ needs.build.result }}" != "success" ]] || \
+             [[ "${{ needs.test-core.result }}" != "success" ]] || \
+             [[ "${{ needs.test-table.result }}" != "success" ]] || \
+             [[ "${{ needs.test-connectors.result }}" != "success" ]] || \
+             [[ "${{ needs.test-python.result }}" != "success" ]] || \
+             [[ "${{ needs.test-misc.result }}" != "success" ]] || \
+             [[ "${{ needs.e2e-group-1.result }}" != "success" ]] || \
+             [[ "${{ needs.e2e-group-2.result }}" != "success" ]]; then
+            echo "❌ CI Failed"
+            exit 1
+          fi
+
+          echo "✅ All CI jobs passed!"
+          echo "✅ Bazel build: 92 modules compiled successfully"
+          echo "✅ Bazel tests: 78 modules tested successfully"

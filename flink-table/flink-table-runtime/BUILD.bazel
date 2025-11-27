@@ -1,0 +1,94 @@
+# Licensed to the Apache Software Foundation (ASF) under one or more
+# contributor license agreements.  See the NOTICE file distributed with
+# this work for additional information regarding copyright ownership.
+# The ASF licenses this file to You under the Apache License, Version 2.0
+# (the "License"); you may not use this file except in compliance with
+# the License.  You may obtain a copy of the License at
+#
+#    http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+
+"""
+BUILD file for flink-table-runtime module.
+
+This module contains classes that are required by a task manager for
+execution of table programs.
+"""
+
+load("//tools/bazel:java_library_suite.bzl", "flink_java_library_with_test_jar", "flink_java_tests")
+
+# Main library target with test-jar for shared test utilities
+flink_java_library_with_test_jar(
+    name = "flink-table-runtime",
+    test_jar_srcs = glob([
+        "src/test/java/org/apache/flink/table/runtime/util/StreamRecordUtils.java",
+        "src/test/java/org/apache/flink/table/runtime/util/RowDataHarnessAssertor.java",
+        "src/test/java/org/apache/flink/table/runtime/util/RowDataTestUtil.java",
+    ]),
+    test_jar_deps = [
+        "@maven//:junit_junit",
+        "@maven//:org_junit_jupiter_junit_jupiter_api",
+        "@maven//:org_assertj_assertj_core",  # For Assertions in RowDataHarnessAssertor
+        "//flink-runtime:flink-runtime-test-jar",  # For AbstractStreamOperatorTestHarness
+        "//flink-streaming-java:tests-lib",  # For test utilities
+        # Note: flink-streaming-java main lib is already in main deps
+    ],
+    srcs = glob(["src/main/java/**/*.java"]),
+    resources = glob(["src/main/resources/**/*"], allow_empty = True),
+    resource_strip_prefix = "flink-table/flink-table-runtime/src/main/resources",
+    deps = [
+        "//flink-annotations",
+        "//flink-core",
+        "//flink-core-api",
+        "//flink-libraries/flink-cep",
+        "//flink-metrics/flink-metrics-core",
+        "//flink-runtime",
+        "//flink-streaming-java",
+        "//flink-table/flink-table-api-java",
+        "//flink-table/flink-table-api-java-bridge",
+        "//flink-table/flink-table-code-splitter",
+        "//flink-table/flink-table-common",
+        "@flink_shaded//:org_apache_flink_flink_shaded_guava",
+        "@flink_shaded//:org_apache_flink_flink_shaded_jackson",
+        "@flink_shaded//:org_apache_flink_flink_shaded_jsonpath",
+        "@maven//:com_google_code_findbugs_jsr305",
+        "@maven//:commons_cli_commons_cli",
+        "@maven//:commons_io_commons_io",
+        "@maven//:org_apache_commons_commons_lang3",
+        "@maven//:org_apache_commons_commons_math3",
+        "@maven//:org_codehaus_janino_commons_compiler",
+        "@maven//:org_codehaus_janino_janino",
+        "@maven//:org_slf4j_slf4j_api",
+    ],
+    visibility = ["//visibility:public"],
+)
+
+# Tests
+flink_java_tests(
+    name = "tests",
+    deps = [
+        ":flink-table-runtime",
+        # Direct dependencies
+        "//flink-core",
+        "//flink-core:flink-core-test-jar",  # For SerializerTestBase (per pom.xml lines 103-109)
+        "//flink-streaming-java",
+        "//flink-streaming-java:tests-lib",  # For OneInputStreamOperatorTestHarness, etc. (per pom.xml lines 118-124)
+        "//flink-table/flink-table-common",
+        "//flink-table/flink-table-common:flink-table-common-test-jar",  # For FactoryMocks, etc. (per pom.xml lines 126-132)
+        "@maven//:com_google_code_findbugs_jsr305",
+        # Test utilities
+        "//flink-runtime:flink-runtime-test-jar",  # For MemoryManagerBuilder, test operators, etc.
+        "//flink-migration-test-utils",  # Per pom.xml lines 134-139
+        # Strict dependencies (from Bazel error output)
+        "@flink_shaded//:org_apache_flink_flink_shaded_guava",
+        "@flink_shaded//:org_apache_flink_flink_shaded_jackson",
+        "@maven//:com_esotericsoftware_kryo",
+        "@maven//:commons_collections_commons_collections",
+    ],
+)

@@ -1,0 +1,168 @@
+# Licensed to the Apache Software Foundation (ASF) under one or more
+# contributor license agreements.  See the NOTICE file distributed with
+# this work for additional information regarding copyright ownership.
+# The ASF licenses this file to You under the Apache License, Version 2.0
+# (the "License"); you may not use this file except in compliance with
+# the License.  You may obtain a copy of the License at
+#
+#    http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+
+"""
+BUILD file for flink-python module.
+
+This module provides Python API support for Flink.
+
+Code Generation Strategy:
+- Protobuf sources are generated at build time using Bazel-managed protoc
+- This is fully Maven-free and hermetic
+- protoc version 27.3 matches Maven pom.xml protoc.version 4.32.1
+"""
+
+load("//tools/bazel:java_library_suite.bzl", "flink_java_library", "flink_java_tests")
+
+# Generate Java sources from protobuf using platform-appropriate protoc
+# Note: We use config_setting to detect the platform and select the right binary
+genrule(
+    name = "flink_fn_execution_proto_gen",
+    srcs = ["pyflink/proto/flink-fn-execution.proto"],
+    outs = ["org/apache/flink/fnexecution/v1/FlinkFnApi.java"],
+    cmd = select({
+        "@platforms//os:linux": """
+            $(location @protoc_binary_linux_x86_64//:bin/protoc) \
+                --java_out=$(RULEDIR) \
+                --proto_path=flink-python/pyflink/proto \
+                $(location pyflink/proto/flink-fn-execution.proto)
+        """,
+        "@platforms//os:macos": """
+            $(location @protoc_binary_macos_aarch64//:bin/protoc) \
+                --java_out=$(RULEDIR) \
+                --proto_path=flink-python/pyflink/proto \
+                $(location pyflink/proto/flink-fn-execution.proto)
+        """,
+        "//conditions:default": """
+            $(location @protoc_binary_linux_x86_64//:bin/protoc) \
+                --java_out=$(RULEDIR) \
+                --proto_path=flink-python/pyflink/proto \
+                $(location pyflink/proto/flink-fn-execution.proto)
+        """,
+    }),
+    tools = select({
+        "@platforms//os:linux": ["@protoc_binary_linux_x86_64//:bin/protoc"],
+        "@platforms//os:macos": ["@protoc_binary_macos_aarch64//:bin/protoc"],
+        "//conditions:default": ["@protoc_binary_linux_x86_64//:bin/protoc"],
+    }),
+    message = "Generating protobuf sources for FlinkFnApi",
+)
+
+# Java library for generated protobuf sources
+java_library(
+    name = "flink_fn_execution_java_proto",
+    srcs = [":flink_fn_execution_proto_gen"],
+    deps = ["@maven//:com_google_protobuf_protobuf_java"],
+)
+
+# Main library target
+flink_java_library(
+    name = "flink-python",
+    srcs = glob(
+        [
+            "src/main/java/**/*.java",
+        ],
+        exclude = [
+            # Exclude custom Beam classes that require beam-runners-core-construction
+            # These are only needed for Maven shading and are not compiled by Maven
+            "src/main/java/org/apache/beam/**/*.java",
+        ],
+    ),
+    resources = glob(["src/main/resources/**/*"], allow_empty = True),
+    resource_strip_prefix = "flink-python/src/main/resources",
+    deps = [
+        ":flink_fn_execution_java_proto",
+        "//flink-annotations",
+        "//flink-clients",
+        "//flink-connectors/flink-connector-files",
+        "//flink-core",
+        "//flink-core-api",
+        "//flink-formats/flink-avro",
+        "//flink-formats/flink-csv",
+        "//flink-formats/flink-format-common",
+        "//flink-formats/flink-json",
+        "//flink-metrics/flink-metrics-core",
+        "//flink-runtime",
+        "//flink-streaming-java",
+        "//flink-table/flink-table-api-java",
+        "//flink-table/flink-table-api-java-bridge",
+        "//flink-table/flink-table-common",
+        "//flink-table/flink-table-runtime",
+        "@flink_shaded//:org_apache_flink_flink_shaded_guava",
+        "@flink_shaded//:org_apache_flink_flink_shaded_jackson",
+        "@maven//:com_alibaba_pemja",
+        "@maven//:com_google_code_findbugs_jsr305",
+        "@maven//:com_google_protobuf_protobuf_java",
+        "@maven//:commons_cli_commons_cli",
+        "@maven//:io_netty_netty_common",
+        "@maven//:net_razorvine_pyrolite",
+        "@maven//:net_sf_py4j_py4j",
+        "@maven//:org_apache_arrow_arrow_format",
+        "@maven//:org_apache_arrow_arrow_memory_core",
+        "@maven//:org_apache_arrow_arrow_memory_netty",
+        "@maven//:org_apache_arrow_arrow_vector",
+        "@maven//:org_apache_avro_avro",
+        "@maven//:org_apache_beam_beam_model_fn_execution",
+        "@maven//:org_apache_beam_beam_model_pipeline",
+        "@maven//:org_apache_beam_beam_runners_core_construction_java",
+        "@maven//:org_apache_beam_beam_runners_core_java",
+        "@maven//:org_apache_beam_beam_runners_java_fn_execution",
+        "@maven//:org_apache_beam_beam_sdks_java_core",
+        "@maven//:org_apache_beam_beam_sdks_java_fn_execution",
+        "@maven//:org_apache_beam_beam_vendor_grpc_1_60_1",
+        "@maven//:org_apache_beam_beam_vendor_guava_32_1_2_jre",
+        "@maven//:org_apache_commons_commons_lang3",
+        "@maven//:org_slf4j_slf4j_api",
+    ],
+    visibility = ["//visibility:public"],
+)
+
+# Tests
+flink_java_tests(
+    name = "tests",
+    deps = [
+        ":flink-python",
+        ":flink_fn_execution_java_proto",
+        # Direct dependencies
+        "//flink-core",
+        "//flink-core:flink-core-test-jar",  # For SerializerTestBase
+        "//flink-runtime",
+        "//flink-streaming-java",
+        "//flink-table/flink-table-api-java-bridge",
+        "//flink-table/flink-table-common",
+        "//flink-table/flink-table-runtime",
+        "//flink-table/flink-table-runtime:flink-table-runtime-test-jar",  # For StreamRecordUtils, RowDataHarnessAssertor
+        "//flink-table/flink-table-planner",  # For KeySelectorUtil
+        "//flink-table/flink-table-planner:flink-table-planner-test-jar",  # For JavaUserDefinedScalarFunctions (per pom.xml lines 246-249)
+        # Test utilities
+        "//flink-runtime:flink-runtime-test-jar",
+        "@flink_shaded//:org_apache_flink_flink_shaded_guava",
+        "@maven//:com_google_code_findbugs_jsr305",
+        "@maven//:commons_cli_commons_cli",
+        "@maven//:commons_io_commons_io",
+        "@maven//:net_sf_py4j_py4j",
+        "@maven//:org_apache_arrow_arrow_memory_core",
+        "@maven//:org_apache_arrow_arrow_vector",
+        "@maven//:org_apache_beam_beam_model_pipeline",
+        "@maven//:org_apache_beam_beam_runners_core_java",
+        "@maven//:org_apache_beam_beam_runners_java_fn_execution",
+        "@maven//:org_apache_beam_beam_sdks_java_core",
+        "@maven//:org_apache_beam_beam_sdks_java_fn_execution",
+        "@maven//:org_apache_beam_beam_vendor_grpc_1_60_1",
+        "@maven//:org_apache_beam_beam_vendor_guava_32_1_2_jre",
+        "@maven//:org_apache_commons_commons_compress",
+    ],
+)

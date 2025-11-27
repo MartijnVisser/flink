@@ -1,0 +1,151 @@
+# Licensed to the Apache Software Foundation (ASF) under one or more
+# contributor license agreements.  See the NOTICE file distributed with
+# this work for additional information regarding copyright ownership.
+# The ASF licenses this file to You under the Apache License, Version 2.0
+# (the "License"); you may not use this file except in compliance with
+# the License.  You may obtain a copy of the License at
+#
+#    http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+
+"""
+BUILD file for flink-core module.
+
+This module provides the core functionality of Apache Flink including:
+- Type system and serialization
+- Memory management
+- Configuration
+- Execution graphs
+- I/O operations
+"""
+
+load("//tools/bazel:java_library_suite.bzl", "flink_java_library", "flink_java_tests")
+
+# Main library target
+flink_java_library(
+    name = "flink-core",
+    srcs = glob(["src/main/java/**/*.java"]),
+    resources = glob(["src/main/resources/**/*"], allow_empty = True),
+    resource_strip_prefix = "flink-core/src/main/resources",
+    deps = [
+        "//flink-annotations",
+        "//flink-core-api",
+        "//flink-metrics/flink-metrics-core",
+        # Flink shaded dependencies
+        "@flink_shaded//:org_apache_flink_flink_shaded_asm_9",
+        "@flink_shaded//:org_apache_flink_flink_shaded_jackson",
+        "@flink_shaded//:org_apache_flink_flink_shaded_guava",
+        # External dependencies
+        "@maven//:org_apache_commons_commons_lang3",
+        "@maven//:org_apache_commons_commons_text",
+        "@maven//:org_apache_commons_commons_compress",
+        "@maven//:org_snakeyaml_snakeyaml_engine",
+        "@maven//:com_esotericsoftware_kryo",
+        "@maven//:com_esotericsoftware_minlog",
+        "@maven//:org_objenesis_objenesis",
+        "@maven//:commons_collections_commons_collections",
+        "@maven//:com_google_code_findbugs_jsr305",
+        "@maven//:org_slf4j_slf4j_api",
+    ],
+    javacopts = [
+        # Export internal JDK modules needed by JMXServer
+        "--add-exports=java.rmi/sun.rmi.registry=ALL-UNNAMED",
+        # Disable Error Prone for existing code patterns
+        "-XepDisableAllChecks",
+    ],
+    visibility = ["//visibility:public"],
+)
+
+# Test-jar imported from Maven build (to avoid circular dependencies)
+# This contains all test utilities needed by other modules
+java_import(
+    name = "flink-core-test-jar",
+    jars = ["target/flink-core-2.3-SNAPSHOT-tests.jar"],
+    testonly = True,
+    visibility = ["//visibility:public"],
+    deps = [
+        ":flink-core",
+        "//flink-annotations",
+        "//flink-core-api",
+        "//flink-metrics/flink-metrics-core",
+        "@flink_shaded//:org_apache_flink_flink_shaded_asm_9",
+        "@flink_shaded//:org_apache_flink_flink_shaded_guava",
+        "@flink_shaded//:org_apache_flink_flink_shaded_jackson",
+        "@maven//:commons_collections_commons_collections",
+        "@maven//:com_esotericsoftware_kryo",
+        "@maven//:com_google_code_findbugs_jsr305",
+        "@maven//:org_apache_commons_commons_compress",
+        "@maven//:org_apache_commons_commons_lang3",
+        "@maven//:org_slf4j_slf4j_api",
+        "@maven//:org_snakeyaml_snakeyaml_engine",
+        "@maven//:joda_time_joda_time",
+        "@maven//:org_joda_joda_convert",
+        "@maven//:com_github_luben_zstd_jni",
+        "@maven//:junit_junit",
+        "@maven//:org_junit_jupiter_junit_jupiter_api",
+        "@maven//:org_junit_jupiter_junit_jupiter_params",
+        "@maven//:org_assertj_assertj_core",
+        "@maven//:org_mockito_mockito_core",
+        "@maven//:org_projectlombok_lombok",
+        "//flink-test-utils-parent/flink-test-utils-junit",
+        "//flink-test-utils-parent/flink-migration-test-utils:flink-migration-test-utils",
+        "//flink-architecture-tests/flink-architecture-tests-base",
+        "//flink-architecture-tests/flink-architecture-tests-test",
+        "@maven//:com_tngtech_archunit_archunit",
+        "@maven//:com_tngtech_archunit_archunit_junit5",
+        "@maven//:com_tngtech_archunit_archunit_junit5_api",
+        "@bazel_tools//tools/java/runfiles",
+    ],
+)
+
+# Lombok annotation processor for test code
+java_plugin(
+    name = "lombok_plugin",
+    processor_class = "lombok.launch.AnnotationProcessorHider$AnnotationProcessor",
+    deps = ["@maven//:org_projectlombok_lombok"],
+)
+
+# Tests
+flink_java_tests(
+    name = "tests",
+    deps = [
+        ":flink-core",
+        # Direct dependencies needed by test code
+        "//flink-annotations",
+        "//flink-core-api",
+        "//flink-metrics/flink-metrics-core",
+        "@flink_shaded//:org_apache_flink_flink_shaded_asm_9",
+        "@flink_shaded//:org_apache_flink_flink_shaded_guava",
+        "@flink_shaded//:org_apache_flink_flink_shaded_jackson",
+        "@maven//:commons_collections_commons_collections",
+        "@maven//:com_esotericsoftware_kryo",
+        "@maven//:com_google_code_findbugs_jsr305",
+        "@maven//:com_tngtech_archunit_archunit_junit5_api",
+        "@maven//:org_apache_commons_commons_compress",
+        "@maven//:org_apache_commons_commons_lang3",
+        "@maven//:org_junit_jupiter_junit_jupiter_params",
+        "@maven//:org_slf4j_slf4j_api",
+        "@maven//:org_snakeyaml_snakeyaml_engine",
+        # Module-specific test dependencies
+        "@maven//:joda_time_joda_time",
+        "@maven//:org_joda_joda_convert",
+        "@maven//:com_github_luben_zstd_jni",
+        "//flink-test-utils-parent/flink-migration-test-utils:flink-migration-test-utils",
+        # Bazel runfiles library for resource loading
+        "@bazel_tools//tools/java/runfiles",
+        # Architecture tests
+        "//flink-architecture-tests/flink-architecture-tests-base",
+        "//flink-architecture-tests/flink-architecture-tests-test",
+        "@maven//:com_tngtech_archunit_archunit",
+        "@maven//:com_tngtech_archunit_archunit_junit5",
+    ],
+    plugins = [":lombok_plugin"],
+    # ArchUnit violation store files
+    data = glob(["archunit-violations/**/*"]),
+)

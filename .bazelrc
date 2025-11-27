@@ -1,0 +1,129 @@
+# Apache Flink Bazel Configuration
+
+# Java Toolchain Configuration
+# Source compatibility: Java 11, Target compatibility: Java 17
+build --java_language_version=17
+build --tool_java_language_version=17
+build --java_runtime_version=remotejdk_17
+build --tool_java_runtime_version=remotejdk_17
+
+# JVM Flags for compilation and tests
+build --jvmopt="-Xmx3072m"
+build --jvmopt="--add-exports=java.management/sun.management=ALL-UNNAMED"
+build --jvmopt="--add-exports=java.rmi/sun.rmi.registry=ALL-UNNAMED"
+build --jvmopt="--add-exports=java.security.jgss/sun.security.krb5=ALL-UNNAMED"
+
+# Add exports for javac compilation (needed for JMX internal APIs)
+build --javacopt="--add-exports=java.rmi/sun.rmi.registry=ALL-UNNAMED"
+
+# Test Configuration
+test --test_output=errors
+test --test_summary=detailed
+test --jvmopt="-Xmx1536m"
+test --jvmopt="-XX:+UseG1GC"
+test --jvmopt="-Xms256m"
+test --jvmopt="-XX:+IgnoreUnrecognizedVMOptions"
+
+# Additional JVM options for tests (matching Maven surefire config)
+test --jvmopt="--add-opens=java.base/java.util=ALL-UNNAMED"
+test --jvmopt="--add-opens=java.base/java.lang=ALL-UNNAMED"
+test --jvmopt="--add-opens=java.base/java.io=ALL-UNNAMED"
+test --jvmopt="--add-opens=java.base/java.net=ALL-UNNAMED"
+test --jvmopt="--add-opens=java.base/java.util.concurrent=ALL-UNNAMED"
+test --jvmopt="--add-opens=java.base/java.util.concurrent.locks=ALL-UNNAMED"
+test --jvmopt="--add-opens=java.base/java.lang.reflect=ALL-UNNAMED"
+
+# Test environment variables (matching Maven configuration)
+test --test_env=flink.hadoop.version=2.10.2
+test --test_env=checkpointing.randomization=true
+test --test_env=buffer-debloat.randomization=true
+test --test_env=user.country=US
+test --test_env=user.language=en
+test --test_env=checkpointing.changelog=random
+test --test_env=junit.jupiter.extensions.autodetection.enabled=true
+test --test_env=junit.jupiter.execution.parallel.enabled=true
+test --test_env=junit.jupiter.execution.parallel.mode.default=same_thread
+test --test_env=junit.jupiter.execution.parallel.mode.classes.default=same_thread
+test --test_env=junit.jupiter.execution.parallel.config.strategy=dynamic
+test --test_env=junit.jupiter.execution.parallel.config.dynamic.max-pool-size-factor=256
+test --test_env=junit.jupiter.execution.parallel.config.dynamic.factor=1.0
+
+# Build Performance
+build --strategy=Javac=worker
+build --worker_sandboxing
+build --experimental_strict_java_deps=warn
+build --explicit_java_test_deps
+
+# Disk Cache
+build --disk_cache=~/.cache/bazel/flink
+
+# Repository Cache
+build --repository_cache=~/.cache/bazel/repository
+
+# Output
+build --show_timestamps
+build --color=yes
+build --curses=yes
+build --terminal_columns=120
+
+# Compilation Settings
+build --javacopt="-source 11"
+build --javacopt="-target 17"
+build --javacopt="-encoding UTF-8"
+build --javacopt="-Xlint:-options"
+build --javacopt="-Xpkginfo:always"
+# Disable strict Error Prone checks to match Maven behavior
+build --javacopt="-XepDisableWarningsInGeneratedCode"
+build --javacopt="-Xep:CollectionIncompatibleType:OFF"
+build --javacopt="-Xep:ComparableType:OFF"
+build --javacopt="-Xep:DoubleBraceInitialization:OFF"
+build --javacopt="-Xep:EqualsHashCode:OFF"
+build --javacopt="-Xep:FormatString:OFF"
+build --javacopt="-Xep:GetClassOnClass:OFF"
+build --javacopt="-Xep:GuardedBy:OFF"
+build --javacopt="-Xep:OptionalMapUnusedValue:OFF"
+build --javacopt="-Xep:UnnecessaryTypeArgument:OFF"
+# Allow @Override on methods that may not override in all Java versions (JMX/RMI APIs)
+build --javacopt="-Xlint:-overrides"
+
+# Scala Configuration (matching Maven scala-maven-plugin)
+build --strategy=Scalac=worker
+build --experimental_worker_max_multiplex_instances=4
+
+# Default Build Mode
+build --compilation_mode=fastbuild
+
+# Configuration for different build modes
+build:fastbuild --compilation_mode=fastbuild
+build:opt --compilation_mode=opt
+build:dbg --compilation_mode=dbg
+
+# CI Configuration
+build:ci --show_progress_rate_limit=30
+build:ci --curses=no
+build:ci --color=yes
+build:ci --terminal_columns=140
+build:ci --show_timestamps
+build:ci --verbose_failures
+build:ci --announce_rc
+build:ci --disk_cache=
+build:ci --repository_cache=
+
+# CI Test Configuration
+test:ci --test_output=errors
+test:ci --test_summary=detailed
+test:ci --test_verbose_timeout_warnings
+test:ci --build_tests_only
+test:ci --flaky_test_attempts=3
+
+# Remote Execution (placeholder for future use)
+# build:remote --remote_executor=...
+
+# Coverage Configuration
+coverage --combined_report=lcov
+coverage --coverage_report_generator=@bazel_tools//tools/test/CoverageOutputGenerator/java/com/google/devtools/coverageoutputgenerator:Main
+coverage --instrumentation_filter="^//flink-[^/]+/src/main/java[^:]*$"
+coverage --test_timeout=3600
+
+# Try to import user-specific configuration
+try-import %workspace%/.bazelrc.user

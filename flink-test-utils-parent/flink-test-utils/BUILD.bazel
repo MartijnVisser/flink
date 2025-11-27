@@ -1,0 +1,95 @@
+# Licensed to the Apache Software Foundation (ASF) under one or more
+# contributor license agreements.  See the NOTICE file distributed with
+# this work for additional information regarding copyright ownership.
+# The ASF licenses this file to You under the Apache License, Version 2.0
+# (the "License"); you may not use this file except in compliance with
+# the License.  You may obtain a copy of the License at
+#
+#    http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+
+"""
+BUILD file for flink-test-utils module.
+
+This module provides comprehensive test utilities for Flink testing.
+
+HYBRID BUILD APPROACH (similar to flink-table-planner Immutables):
+- Maven builds this module (handles circular dependencies via test scope)
+- Bazel imports the Maven-built JAR
+- This avoids circular dependency issues in Bazel's dependency graph
+
+To rebuild:
+    cd flink-test-utils-parent/flink-test-utils
+    mvn clean package -DskipTests
+"""
+
+load("//tools/bazel:java_library_suite.bzl", "flink_java_tests")
+
+# Import Maven-built JAR (built with: mvn clean package -DskipTests)
+# Maven handles the circular dependency via test-scoped dependencies
+java_import(
+    name = "flink-test-utils",
+    jars = ["target/flink-test-utils-2.3-SNAPSHOT.jar"],
+    testonly = True,
+    visibility = ["//visibility:public"],
+    # Maven already bundled all dependencies, so we don't need to re-declare them
+    # But Bazel consumers may need these for compilation
+    exports = [
+        # Core Flink dependencies that consuming modules may need
+        "//flink-annotations",
+        "//flink-clients",
+        "//flink-core",
+        "//flink-core-api",
+        "//flink-metrics/flink-metrics-core",
+        "//flink-runtime",
+        "//flink-streaming-java",
+        "//flink-table/flink-table-api-java",
+        "//flink-table/flink-table-common",
+
+        # Test infrastructure
+        "//flink-test-utils-parent/flink-test-utils-junit",
+
+        # Testing frameworks
+        "@maven//:junit_junit",
+        "@maven//:org_junit_jupiter_junit_jupiter",
+        "@maven//:org_junit_jupiter_junit_jupiter_api",
+        "@maven//:org_junit_jupiter_junit_jupiter_params",
+        "@maven//:org_assertj_assertj_core",
+
+        # Commons
+        "@maven//:org_apache_commons_commons_lang3",
+        "@maven//:org_slf4j_slf4j_api",
+    ],
+)
+
+# Tests for flink-test-utils itself
+flink_java_tests(
+    name = "tests",
+    deps = [
+        ":flink-test-utils",
+        # Test code needs these at compile time (for state benchmarks)
+        "//flink-dstl/flink-dstl-dfs",
+        "//flink-state-backends/flink-statebackend-changelog",
+        "//flink-state-backends/flink-statebackend-rocksdb",
+        # Additional direct dependencies needed by test code
+        "//flink-clients",
+        "//flink-core",
+        "//flink-core-api",
+        "//flink-metrics/flink-metrics-core",
+        "//flink-runtime",
+        "//flink-runtime:flink-runtime-test-jar",
+        "//flink-test-utils-parent/flink-test-utils-junit",
+        "@maven//:com_ververica_frocksdbjni",
+    ],
+    runtime_deps = [
+        # Hadoop dependencies require Log4j 1.x at runtime
+        "@maven//:log4j_log4j",
+        "@maven//:org_slf4j_slf4j_log4j12",
+    ],
+)

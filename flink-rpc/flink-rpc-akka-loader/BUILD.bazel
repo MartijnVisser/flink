@@ -1,0 +1,84 @@
+# Licensed to the Apache Software Foundation (ASF) under one or more
+# contributor license agreements.  See the NOTICE file distributed with
+# this work for additional information regarding copyright ownership.
+# The ASF licenses this file to You under the Apache License, Version 2.0
+# (the "License"); you may not use this file except in compliance with
+# the License.  You may obtain a copy of the License at
+#
+#    http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+
+"""
+BUILD file for flink-rpc-akka-loader module.
+
+This module contains the mechanism for loading flink-rpc-akka through a separate classloader.
+
+The flink-rpc-akka JAR is embedded as a resource in this module, allowing the loader to
+extract and load it in a separate classloader at runtime.
+"""
+
+load("@rules_java//java:defs.bzl", "java_library")
+load("//tools/bazel:java_library_suite.bzl", "flink_java_tests")
+
+# Create a resource directory structure with both the service loader and the embedded JAR
+# This replicates Maven's maven-dependency-plugin that copies the JAR to target/classes
+# Uses the deploy JAR (fat JAR) from flink-rpc-akka-deploy which includes all dependencies
+genrule(
+    name = "prepare-resources",
+    srcs = [
+        "//flink-rpc/flink-rpc-akka:flink-rpc-akka-deploy_deploy.jar",
+    ] + glob(["src/main/resources/**/*"], allow_empty = True),
+    outs = [
+        "resources/flink-rpc-akka.jar",
+        "resources/META-INF/services/org.apache.flink.runtime.rpc.RpcSystemLoader",
+    ],
+    cmd = """
+    # Find the flink-rpc-akka deploy JAR from the inputs (contains all dependencies)
+    RPC_JAR=$$(echo $(SRCS) | tr ' ' '\\n' | grep 'flink-rpc-akka-deploy.*_deploy\\.jar$$' | head -1)
+
+    # Create output directory structure
+    mkdir -p $$(dirname $(location resources/flink-rpc-akka.jar))
+    mkdir -p $$(dirname $(location resources/META-INF/services/org.apache.flink.runtime.rpc.RpcSystemLoader))
+
+    # Copy the RPC deploy JAR to the root of resources
+    cp $$RPC_JAR $(location resources/flink-rpc-akka.jar)
+
+    # Copy the service loader file
+    SERVICE_LOADER=$$(echo $(SRCS) | tr ' ' '\\n' | grep 'META-INF/services/org.apache.flink.runtime.rpc.RpcSystemLoader$$' | head -1)
+    cp $$SERVICE_LOADER $(location resources/META-INF/services/org.apache.flink.runtime.rpc.RpcSystemLoader)
+    """,
+)
+
+# Main library target - manually defined to control resource handling
+java_library(
+    name = "flink-rpc-akka-loader",
+    srcs = glob(["src/main/java/**/*.java"]),
+    resources = [":prepare-resources"],
+    resource_strip_prefix = "flink-rpc/flink-rpc-akka-loader/resources",
+    deps = [
+        "//flink-core",
+        "//flink-rpc/flink-rpc-core",
+        "@maven//:org_slf4j_slf4j_api",
+    ],
+    javacopts = [
+        "-source",
+        "11",
+        "-target",
+        "17",
+        "-encoding",
+        "UTF-8",
+    ],
+    visibility = ["//visibility:public"],
+)
+
+# Tests
+flink_java_tests(
+    name = "tests",
+    deps = [":flink-rpc-akka-loader"],
+)

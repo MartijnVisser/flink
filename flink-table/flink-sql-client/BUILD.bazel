@@ -1,0 +1,78 @@
+# Licensed to the Apache Software Foundation (ASF) under one or more
+# contributor license agreements.  See the NOTICE file distributed with
+# this work for additional information regarding copyright ownership.
+# The ASF licenses this file to You under the Apache License, Version 2.0
+# (the "License"); you may not use this file except in compliance with
+# the License.  You may obtain a copy of the License at
+#
+#    http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+
+"""
+BUILD file for flink-sql-client module.
+
+This module contains the SQL Client for exploring and submitting SQL programs to Flink.
+"""
+
+load("//tools/bazel:java_library_suite.bzl", "flink_java_library", "flink_java_tests")
+
+flink_java_library(
+    name = "flink-sql-client",
+    srcs = glob(["src/main/java/**/*.java"]),
+    resources = glob(["src/main/resources/**/*"], allow_empty = True),
+    resource_strip_prefix = "flink-table/flink-sql-client/src/main/resources",
+    deps = [
+        # Core Flink dependencies
+        "//flink-annotations",
+        "//flink-core",
+        "//flink-core-api",
+        "//flink-runtime",
+        "//flink-clients",
+
+        # Table API dependencies
+        "//flink-table/flink-table-common",
+        "//flink-table/flink-table-api-java",
+        "//flink-table/flink-table-api-java-bridge",
+        "//flink-table/flink-sql-gateway-api",
+        "//flink-table/flink-sql-gateway",
+        "//flink-table/flink-sql-parser",
+
+        # Flink shaded dependencies
+        "@flink_shaded//:org_apache_flink_flink_shaded_jackson",
+
+        # JLine for CLI
+        "@maven//:org_jline_jline_terminal",
+        "@maven//:org_jline_jline_reader",
+
+        # Logging
+        "@maven//:org_slf4j_slf4j_api",
+
+        # Commons
+        "@maven//:org_apache_commons_commons_lang3",
+        "@maven//:commons_cli_commons_cli",
+        "@maven//:commons_io_commons_io",
+
+        # JSR305
+        "@maven//:com_google_code_findbugs_jsr305",
+    ],
+    visibility = ["//visibility:public"],
+)
+
+flink_java_tests(
+    name = "tests",
+    deps = [
+        ":flink-sql-client",
+        # Direct dependencies
+        "//flink-core",
+        "//flink-table/flink-table-common",
+        "//flink-table/flink-table-api-java",
+        "@maven//:com_google_code_findbugs_jsr305",
+        "@maven//:org_jline_jline",
+    ],
+)

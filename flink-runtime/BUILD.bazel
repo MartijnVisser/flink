@@ -1,0 +1,168 @@
+# Licensed to the Apache Software Foundation (ASF) under one or more
+# contributor license agreements.  See the NOTICE file distributed with
+# this work for additional information regarding copyright ownership.
+# The ASF licenses this file to You under the Apache License, Version 2.0
+# (the "License"); you may not use this file except in compliance with
+# the License.  You may obtain a copy of the License at
+#
+#    http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+
+"""
+BUILD file for flink-runtime module.
+
+This is the largest and most critical module in Flink, containing:
+- Task execution engine
+- Job scheduling
+- State management
+- Checkpointing
+- Resource management
+- Fault tolerance
+"""
+
+load("//tools/bazel:java_library_suite.bzl", "flink_java_library", "flink_java_tests")
+
+# Main library target
+flink_java_library(
+    name = "flink-runtime",
+    srcs = glob(["src/main/java/**/*.java"]),
+    resources = glob(["src/main/resources/**/*"], allow_empty = True),
+    resource_strip_prefix = "flink-runtime/src/main/resources",
+    deps = [
+        "//flink-annotations",
+        "//flink-connectors/flink-connector-datagen",
+        "//flink-core",
+        "//flink-core-api",
+        "//flink-datastream-api",
+        "//flink-filesystems/flink-hadoop-fs",
+        "//flink-metrics/flink-metrics-core",
+        "//flink-queryable-state/flink-queryable-state-client-java",
+        "//flink-rpc/flink-rpc-akka-loader",
+        "//flink-rpc/flink-rpc-core",
+        # Flink shaded dependencies
+        "@flink_shaded//:org_apache_flink_flink_shaded_guava",
+        "@flink_shaded//:org_apache_flink_flink_shaded_jackson",
+        "@flink_shaded//:org_apache_flink_flink_shaded_jackson_module_jsonSchema",
+        "@flink_shaded//:org_apache_flink_flink_shaded_netty",
+        "@flink_shaded//:org_apache_flink_flink_shaded_swagger",
+        "@flink_shaded//:org_apache_flink_flink_shaded_zookeeper_3",
+        # External dependencies
+        "@maven//:com_esotericsoftware_kryo",
+        "@maven//:com_github_oshi_oshi_core",
+        "@maven//:com_github_stephenc_jcip_jcip_annotations",
+        "@maven//:com_google_code_findbugs_jsr305",
+        "@maven//:io_airlift_aircompressor",
+        "@maven//:commons_cli_commons_cli",
+        "@maven//:commons_collections_commons_collections",
+        "@maven//:commons_io_commons_io",
+        "@maven//:org_apache_commons_commons_lang3",
+        "@maven//:org_apache_commons_commons_math3",
+        "@maven//:org_apache_commons_commons_text",
+        "@maven//:org_apache_curator_curator_client",
+        "@maven//:org_apache_curator_curator_framework",
+        "@maven//:org_apache_curator_curator_recipes",
+        "@maven//:org_apache_hadoop_hadoop_common",
+        "@maven//:org_apache_hadoop_hadoop_hdfs",
+        "@maven//:org_apache_hadoop_hadoop_mapreduce_client_core",
+        "@maven//:org_apache_zookeeper_zookeeper",
+        "@maven//:org_lz4_lz4_java",
+        "@maven//:org_xerial_snappy_snappy_java",
+        "@maven//:org_slf4j_slf4j_api",
+        "@maven//:tools_profiler_async_profiler",
+    ],
+    visibility = ["//visibility:public"],
+)
+
+# Test-jar imported from Maven build (to avoid circular dependencies)
+# This contains all test utilities needed by other modules
+java_import(
+    name = "flink-runtime-test-jar",
+    jars = ["target/flink-runtime-2.3-SNAPSHOT-tests.jar"],
+    testonly = True,
+    visibility = ["//visibility:public"],
+    deps = [
+        ":flink-runtime",
+        "//flink-annotations",
+        "//flink-core",
+        "//flink-core:flink-core-test-jar",
+        "//flink-core-api",
+        "//flink-datastream-api",
+        "//flink-metrics/flink-metrics-core",
+        "//flink-rpc/flink-rpc-core",
+        "//flink-clients",
+        "//flink-datastream",
+        "//flink-streaming-java",
+        "//flink-state-backends/flink-statebackend-changelog",
+        "//flink-state-backends/flink-statebackend-common",
+        "//flink-state-backends/flink-statebackend-rocksdb",
+        "//flink-table/flink-table-api-java",
+        "//flink-table/flink-table-common",
+        "@flink_shaded//:org_apache_flink_flink_shaded_guava",
+        "@flink_shaded//:org_apache_flink_flink_shaded_jackson",
+        "@flink_shaded//:org_apache_flink_flink_shaded_netty",
+        "@flink_shaded//:org_apache_flink_flink_shaded_zookeeper_3",
+        "@maven//:com_esotericsoftware_kryo",
+        "@maven//:com_google_code_findbugs_jsr305",
+        "@maven//:com_squareup_okhttp3_okhttp",
+        "@maven//:commons_collections_commons_collections",
+        "@maven//:commons_io_commons_io",
+        "@maven//:junit_junit",
+        "@maven//:org_apache_commons_commons_lang3",
+        "@maven//:org_apache_curator_curator_test",
+        "@maven//:org_apache_zookeeper_zookeeper",
+        "@maven//:org_assertj_assertj_core",
+        "@maven//:org_hamcrest_hamcrest_all",
+        "@maven//:org_hamcrest_hamcrest_core",
+        "@maven//:org_junit_jupiter_junit_jupiter_api",
+        "@maven//:org_junit_jupiter_junit_jupiter_params",
+        "@maven//:org_mockito_mockito_core",
+        "@maven//:org_opentest4j_opentest4j",
+        "@maven//:org_slf4j_slf4j_api",
+        "@maven//:org_testcontainers_testcontainers",
+    ],
+)
+
+# Test resources filegroup (avoids duplicate label issues with glob)
+filegroup(
+    name = "test-resources",
+    srcs = glob(["src/test/resources/**/*"], exclude = ["src/test/resources/**/*.java"]),
+)
+
+# Tests
+flink_java_tests(
+    name = "tests",
+    deps = [
+        ":flink-runtime",
+        "//flink-core:flink-core-test-jar",  # ManuallyTriggeredScheduledExecutor, TestingFailureEnricher, TestingPluginManager, etc.
+        "//flink-metrics/flink-metrics-core:flink-metrics-core-test-jar",  # TestMeter, TestHistogram, etc.
+        # Additional Flink modules needed by tests
+        "//flink-queryable-state/flink-queryable-state-client-java",
+        "//flink-rpc/flink-rpc-core",
+        "//flink-test-utils-parent/flink-connector-test-utils",  # AbstractTestSource
+        # Shaded dependencies
+        "@flink_shaded//:org_apache_flink_flink_shaded_guava",
+        "@flink_shaded//:org_apache_flink_flink_shaded_jackson",
+        "@flink_shaded//:org_apache_flink_flink_shaded_jackson_module_jsonSchema",
+        "@flink_shaded//:org_apache_flink_flink_shaded_netty",
+        "@flink_shaded//:org_apache_flink_flink_shaded_zookeeper_3",
+        # External test dependencies
+        "@maven//:com_esotericsoftware_kryo",
+        "@maven//:com_google_code_findbugs_jsr305",
+        "@maven//:com_squareup_okhttp3_okhttp",  # HTTP client for tests
+        "@maven//:commons_collections_commons_collections",
+        "@maven//:commons_io_commons_io",
+        "@maven//:org_apache_curator_curator_test",  # TestingServer, InstanceSpec for ZooKeeper tests
+        "@maven//:org_apache_hadoop_hadoop_common",
+        "@maven//:org_opentest4j_opentest4j",
+        "@maven//:org_testcontainers_testcontainers",
+    ],
+    # Add ALL test resources via filegroup (avoids duplicate label issues)
+    # Includes SSL keystores/truststores, serializer test data, etc.
+    data = [":test-resources"],
+)

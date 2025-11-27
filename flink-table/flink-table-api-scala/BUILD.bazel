@@ -1,0 +1,86 @@
+# Licensed to the Apache Software Foundation (ASF) under one or more
+# contributor license agreements.  See the NOTICE file distributed with
+# this work for additional information regarding copyright ownership.
+# The ASF licenses this file to You under the Apache License, Version 2.0
+# (the "License"); you may not use this file except in compliance with
+# the License.  You may obtain a copy of the License at
+#
+#    http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+
+"""
+BUILD file for flink-table-api-scala module.
+
+This module contains the Table/SQL API for writing table programs
+within the table ecosystem using the Scala programming language.
+"""
+
+load("@io_bazel_rules_scala//scala:scala.bzl", "scala_library", "scala_macro_library")
+load("//tools/bazel:scala_library_suite.bzl", "flink_scala_tests")
+
+# Main library target
+# Using scala_macro_library because this module contains Scala macros (TypeUtils.createTypeInfo)
+scala_macro_library(
+    name = "flink-table-api-scala",
+    srcs = glob([
+        "src/main/scala/**/*.scala",
+        "src/main/java/**/*.java",  # Mixed Scala/Java module
+    ]),
+    resources = glob(["src/main/resources/**/*"], allow_empty = True),
+    resource_strip_prefix = "flink-table/flink-table-api-scala/src/main/resources",
+    deps = [
+        # Core Flink dependencies
+        "//flink-annotations",
+        "//flink-core-api",
+        "//flink-core",
+        "//flink-runtime",
+        "//flink-streaming-java",
+
+        # Table API dependencies
+        "//flink-table/flink-table-common",
+        "//flink-table/flink-table-api-java",
+
+        # Flink shaded dependencies
+        "@flink_shaded//:org_apache_flink_flink_shaded_guava",
+
+        # Serialization
+        "@maven//:com_esotericsoftware_kryo",
+        "@maven//:org_objenesis_objenesis",
+
+        # Scala dependencies (must be explicit when not using macro)
+        "@maven//:org_scala_lang_scala_library",
+        "@maven//:org_scala_lang_scala_reflect",
+        "@maven//:org_scala_lang_scala_compiler",
+        "@maven//:org_scala_lang_modules_scala_xml_2_12",
+    ],
+    # Export dependencies so downstream Scala modules can access them
+    exports = [
+        "//flink-core",
+        "//flink-table/flink-table-common",
+        "//flink-table/flink-table-api-java",
+    ],
+    # Scala compiler options without -Xfatal-warnings to allow deprecation warnings
+    scalacopts = [
+        "-nobootcp",
+        "-encoding",
+        "UTF-8",
+        "-deprecation",
+        "-feature",
+        "-unchecked",
+        # Removed: "-Xfatal-warnings",  # This module has many deprecation warnings
+        "-Xlint",
+    ],
+    visibility = ["//visibility:public"],
+)
+
+# Tests
+flink_scala_tests(
+    name = "tests",
+    deps = [":flink-table-api-scala"],
+)

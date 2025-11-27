@@ -1,0 +1,194 @@
+# Licensed to the Apache Software Foundation (ASF) under one or more
+# contributor license agreements.  See the NOTICE file distributed with
+# this work for additional information regarding copyright ownership.
+# The ASF licenses this file to You under the Apache License, Version 2.0
+# (the "License"); you may not use this file except in compliance with
+# the License.  You may obtain a copy of the License at
+#
+#    http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+
+"""
+BUILD file for flink-rpc-akka module.
+
+This module provides Pekko-based (Apache fork of Akka) RPC implementation.
+"""
+
+load("@rules_java//java:defs.bzl", "java_binary")
+load("//tools/bazel:java_library_suite.bzl", "flink_java_library", "flink_java_tests")
+
+# Main library target (for compilation dependencies)
+flink_java_library(
+    name = "flink-rpc-akka",
+    srcs = glob(["src/main/java/**/*.java"]),
+    resources = glob(["src/main/resources/**/*"], allow_empty = True),
+    resource_strip_prefix = "flink-rpc/flink-rpc-akka/src/main/resources",
+    deps = [
+        "//flink-annotations",
+        "//flink-core",
+        "//flink-core-api",  # For Tuple2 and other core API classes
+        "//flink-rpc/flink-rpc-core",
+        "@flink_shaded//:org_apache_flink_flink_shaded_netty",
+        "@maven//:com_google_code_findbugs_jsr305",
+        "@maven//:com_typesafe_config",
+        "@maven//:org_apache_pekko_pekko_actor_2_12",
+        "@maven//:org_apache_pekko_pekko_remote_2_12",
+        "@maven//:org_apache_pekko_pekko_slf4j_2_12",
+        "@maven//:org_apache_pekko_pekko_stream_2_12",
+        "@maven//:org_slf4j_slf4j_api",
+        "@maven//:org_scala_lang_scala_library",
+    ],
+    visibility = ["//visibility:public"],
+)
+
+# First create a regular deploy JAR with all dependencies
+java_binary(
+    name = "flink-rpc-akka-deploy-full",
+    main_class = "org.apache.flink.runtime.rpc.pekko.PekkoRpcSystem",
+    runtime_deps = [":flink-rpc-akka"],
+)
+
+# Use Maven shade plugin to rewrite bytecode AND string literals
+# Maven shade plugin is the ONLY tool that can rewrite string constants in addition to bytecode
+# This is critical for Pekko's reflection-based class loading (Class.forName with string literals)
+genrule(
+    name = "flink-rpc-akka-deploy",
+    srcs = [":flink-rpc-akka-deploy-full_deploy.jar"],
+    outs = ["flink-rpc-akka-deploy_deploy.jar"],
+    tools = [":flink-rpc-akka-deploy-full"],
+    cmd = """
+    # Get absolute paths
+    DEPLOY_JAR=$$(realpath $(location :flink-rpc-akka-deploy-full_deploy.jar))
+    OUTPUT_JAR=$$(realpath $@)
+
+    # Create working directory
+    TMPDIR=$$(mktemp -d)
+    cd $$TMPDIR
+
+    # Extract the input JAR first, then use Maven shade plugin to rewrite both bytecode AND string constants
+    # Create a minimal pom.xml for shade plugin execution
+    cat > pom.xml <<'EOF'
+<project>
+  <modelVersion>4.0.0</modelVersion>
+  <groupId>temp</groupId>
+  <artifactId>shade-temp</artifactId>
+  <version>1.0</version>
+  <packaging>jar</packaging>
+  <build>
+    <plugins>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-jar-plugin</artifactId>
+        <version>3.2.0</version>
+        <configuration>
+          <skip>true</skip>
+        </configuration>
+      </plugin>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-shade-plugin</artifactId>
+        <version>3.5.2</version>
+        <executions>
+          <execution>
+            <phase>package</phase>
+            <goals>
+              <goal>shade</goal>
+            </goals>
+            <configuration>
+              <shadedArtifactAttached>false</shadedArtifactAttached>
+              <createDependencyReducedPom>false</createDependencyReducedPom>
+              <transformers>
+                <transformer implementation="org.apache.maven.plugins.shade.resource.AppendingTransformer">
+                  <resource>reference.conf</resource>
+                </transformer>
+              </transformers>
+              <relocations>
+                <relocation>
+                  <pattern>io.netty</pattern>
+                  <shadedPattern>org.apache.flink.shaded.netty4.io.netty</shadedPattern>
+                </relocation>
+              </relocations>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
+    </plugins>
+  </build>
+</project>
+EOF
+
+    # Extract input JAR to target/classes so Maven shade plugin can process it
+    mkdir -p target/classes
+    cd target/classes
+    jar -xf $$DEPLOY_JAR
+    cd ../..
+
+    # Create minimal settings.xml with only Maven Central (no custom repos like CodeArtifact)
+    cat > settings.xml <<'SETTINGS_EOF'
+<settings>
+  <localRepository>$$HOME/.m2/repository</localRepository>
+  <mirrors>
+    <mirror>
+      <id>central</id>
+      <url>https://repo1.maven.org/maven2</url>
+      <mirrorOf>*</mirrorOf>
+    </mirror>
+  </mirrors>
+</settings>
+SETTINGS_EOF
+
+    # Run Maven package phase which will invoke shade plugin
+    mvn -q -s settings.xml package 2>&1
+
+    # The output will be in target/shade-temp-1.0.jar (shade plugin doesn't rename when shadedArtifactAttached=false)
+    mv target/shade-temp-1.0.jar rewritten.jar
+
+    # Extract the rewritten JAR
+    unzip -q rewritten.jar 2>/dev/null || jar -xf rewritten.jar
+    rm rewritten.jar
+
+    # Remove ALL Flink classes except Pekko-related implementation
+    # Save both pekko directories (rpc and concurrent)
+    mv org/apache/flink/runtime/rpc/pekko rpc_pekko_saved
+    mv org/apache/flink/runtime/concurrent/pekko concurrent_pekko_saved
+
+    # Remove ENTIRE org/apache/flink tree
+    rm -rf org/apache/flink
+
+    # Recreate directory structure and restore ONLY the pekko implementations
+    mkdir -p org/apache/flink/runtime/rpc
+    mkdir -p org/apache/flink/runtime/concurrent
+    mv rpc_pekko_saved org/apache/flink/runtime/rpc/pekko
+    mv concurrent_pekko_saved org/apache/flink/runtime/concurrent/pekko
+
+    # Remove module-info.class files to avoid Java 9+ module validation conflicts
+    find . -name "module-info.class" -delete
+
+    # Recreate JAR with bytecode-rewritten Pekko classes and external dependencies
+    jar -cf $$OUTPUT_JAR .
+
+    # Cleanup
+    cd /
+    rm -rf $$TMPDIR
+    """,
+    visibility = ["//visibility:public"],
+)
+
+# Tests
+flink_java_tests(
+    name = "tests",
+    deps = [
+        ":flink-rpc-akka",
+        # Test utilities from flink-runtime test-jar
+        "//flink-runtime:flink-runtime-test-jar",
+        # Direct dependencies
+        "//flink-rpc/flink-rpc-core",
+        "@maven//:com_google_code_findbugs_jsr305",
+    ],
+)

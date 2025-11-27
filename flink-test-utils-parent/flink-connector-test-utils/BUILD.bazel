@@ -1,0 +1,85 @@
+# Licensed to the Apache Software Foundation (ASF) under one or more
+# contributor license agreements.  See the NOTICE file distributed with
+# this work for additional information regarding copyright ownership.
+# The ASF licenses this file to You under the Apache License, Version 2.0
+# (the "License"); you may not use this file except in compliance with
+# the License.  You may obtain a copy of the License at
+#
+#    http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+
+"""
+BUILD file for flink-connector-test-utils module.
+
+This module provides connector-specific test utilities, separated from
+flink-connector-base to avoid Scala version bindings.
+"""
+
+load("//tools/bazel:java_library_suite.bzl", "flink_java_library", "flink_java_tests")
+
+flink_java_library(
+    name = "flink-connector-test-utils",
+    srcs = glob(["src/main/java/**/*.java"]),
+    resources = glob(["src/main/resources/**/*"], allow_empty = True),
+    resource_strip_prefix = "flink-test-utils-parent/flink-connector-test-utils/src/main/resources",
+    testonly = True,
+    deps = [
+        # Core Flink dependencies
+        "//flink-annotations",
+        "//flink-clients",
+        "//flink-core",
+        "//flink-core-api",
+        "//flink-runtime",
+        "//flink-runtime:flink-runtime-test-jar",
+        "//flink-metrics/flink-metrics-core",
+        "//flink-streaming-java",
+        "//flink-table/flink-table-common",
+
+        # Test utilities
+        "//flink-test-utils-parent/flink-test-utils",
+        "//flink-test-utils-parent/flink-test-utils-junit",
+
+        # Shaded dependencies
+        "@flink_shaded//:org_apache_flink_flink_shaded_guava",
+
+        # Testing frameworks (compile scope for test utilities)
+        "@maven//:junit_junit",
+        "@maven//:org_junit_jupiter_junit_jupiter",
+        "@maven//:org_junit_jupiter_junit_jupiter_api",
+        "@maven//:org_junit_platform_junit_platform_commons",
+        "@maven//:org_junit_vintage_junit_vintage_engine",
+        "@maven//:org_assertj_assertj_core",
+        "@maven//:org_opentest4j_opentest4j",
+
+        # Testcontainers (docker-java-api is available transitively)
+        "@maven//:org_testcontainers_testcontainers",
+        "@maven//:org_testcontainers_junit_jupiter",
+
+        # Annotations
+        "@maven//:com_google_code_findbugs_jsr305",
+
+        # Commons
+        "@maven//:commons_io_commons_io",
+        "@maven//:org_apache_commons_commons_math3",
+
+        # Logging
+        "@maven//:org_slf4j_slf4j_api",
+    ],
+    visibility = ["//visibility:public"],
+)
+
+flink_java_tests(
+    name = "tests",
+    deps = [":flink-connector-test-utils"],
+    runtime_deps = [
+        # Hadoop dependencies require Log4j 1.x at runtime
+        "@maven//:log4j_log4j",
+        "@maven//:org_slf4j_slf4j_log4j12",
+    ],
+)
