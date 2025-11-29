@@ -211,10 +211,10 @@ public final class CsvRowDataSerializationSchema implements SerializationSchema<
         return Objects.hash(
                 rowType,
                 csvSchema.getColumnSeparator(),
-                csvSchema.getLineSeparator(),
+                Arrays.hashCode(csvSchema.getLineSeparator()),
                 csvSchema.getArrayElementSeparator(),
                 csvSchema.getQuoteChar(),
                 csvSchema.getEscapeChar(),
-                csvSchema.getNullValue());
+                Arrays.hashCode(csvSchema.getNullValue()));
     }
 }

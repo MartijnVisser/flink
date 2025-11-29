@@ -142,7 +142,11 @@ public final class PythonDriver {
         } finally {
             PythonEnvUtils.setGatewayServer(null);
             if (shutdownHook != null && Runtime.getRuntime().removeShutdownHook(shutdownHook)) {
-                shutdownHook.run();
+                // Intentionally calling run() to execute shutdown hook synchronously
+                // after removing it from JVM runtime to avoid double execution
+                @SuppressWarnings("DoNotCall")
+                Runnable runHook = shutdownHook::run;
+                runHook.run();
             }
         }
     }

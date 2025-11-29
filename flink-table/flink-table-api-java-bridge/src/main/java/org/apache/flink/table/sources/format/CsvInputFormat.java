@@ -158,7 +158,7 @@ public abstract class CsvInputFormat<OUT> extends GenericCsvInputFormat<OUT> {
     @Override
     public String toString() {
         return "CSV Input ("
-                + StringUtils.showControlCharacters(String.valueOf(getFieldDelimiter()))
+                + StringUtils.showControlCharacters(Arrays.toString(getFieldDelimiter()))
                 + ") "
                 + Arrays.toString(getFilePaths());
     }

@@ -73,4 +73,9 @@ public class TaggedUnion<T1, T2> {
         TaggedUnion<?, ?> other = (TaggedUnion<?, ?>) obj;
         return Objects.equals(one, other.one) && Objects.equals(two, other.two);
     }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(one, two);
+    }
 }

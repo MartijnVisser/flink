@@ -213,7 +213,7 @@ public final class CsvRowDeserializationSchema implements DeserializationSchema<
                 csvSchema.getArrayElementSeparator(),
                 csvSchema.getQuoteChar(),
                 csvSchema.getEscapeChar(),
-                csvSchema.getNullValue());
+                Arrays.hashCode(csvSchema.getNullValue()));
     }
 
     // --------------------------------------------------------------------------------------------

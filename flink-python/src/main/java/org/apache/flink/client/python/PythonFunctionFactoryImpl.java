@@ -51,7 +51,11 @@ public class PythonFunctionFactoryImpl implements PythonFunctionFactory, Closeab
     public void close() {
         if (shutdownHook != null) {
             if (Runtime.getRuntime().removeShutdownHook(shutdownHook)) {
-                shutdownHook.run();
+                // Intentionally calling run() to execute shutdown hook synchronously
+                // after removing it from JVM runtime to avoid double execution
+                @SuppressWarnings("DoNotCall")
+                Runnable runHook = shutdownHook::run;
+                runHook.run();
             }
         }
     }
