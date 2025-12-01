@@ -68,3 +68,10 @@ tools/japicmp-output
 /docs/go.mod
 /docs/go.sum
 /docs/.hugo_build.lock
+
+# Bazel build artifacts (symlinks created by Bazel)
+/bazel-*
+# Ignore Immutables-generated sources in flink-table-planner (regenerate locally with Maven when needed)
+flink-table/flink-table-planner/src/main/java-generated/
+# Ignore Claude Code
+.claude/*
