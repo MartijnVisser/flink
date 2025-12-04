@@ -68,8 +68,7 @@ public class FileUtilsTest {
     @Test
     void testReadAllBytes() throws Exception {
 
-        File tempFile =
-                TempDirUtils.newFolder(Paths.get(this.getClass().getResource("/").getPath()));
+        File tempFile = TempDirUtils.newFolder(temporaryFolder);
 
         final int fileSize = 1024;
         final String testFilePath =
