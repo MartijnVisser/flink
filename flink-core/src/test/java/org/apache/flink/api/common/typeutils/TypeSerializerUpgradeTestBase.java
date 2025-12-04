@@ -234,7 +234,8 @@ public abstract class TypeSerializerUpgradeTestBase<PreviousElementT, UpgradedEl
     public void generateTestSetupFiles(
             TestSpecification<PreviousElementT, UpgradedElementT> testSpecification)
             throws Exception {
-        Files.createDirectories(getSerializerSnapshotFilePath(testSpecification).getParent());
+        Files.createDirectories(
+                getGenerateSerializerSnapshotFilePath(testSpecification).getParent());
 
         try (ThreadContextClassLoader ignored =
                 new ThreadContextClassLoader(testSpecification.setup.setupClassloader)) {
@@ -475,36 +476,23 @@ public abstract class TypeSerializerUpgradeTestBase<PreviousElementT, UpgradedEl
                 + testSpecification.flinkVersion;
     }
 
-    private Path getSerializerSnapshotFilePath(
-            TestSpecification<PreviousElementT, UpgradedElementT> testSpecification) {
-        return Paths.get(getTestResourceDirectory(testSpecification) + "/serializer-snapshot");
-    }
-
-    private Path getTestDataFilePath(
-            TestSpecification<PreviousElementT, UpgradedElementT> testSpecification) {
-        return Paths.get(getTestResourceDirectory(testSpecification) + "/test-data");
-    }
-
-    private String getTestResourceDirectory(
-            TestSpecification<PreviousElementT, UpgradedElementT> testSpecification) {
-        return System.getProperty("user.dir")
-                + "/src/test/resources/"
-                + testSpecification.name
-                + "-"
-                + testSpecification.flinkVersion;
+    private String getTestResourcePath(
+            TestSpecification<PreviousElementT, UpgradedElementT> testSpecification,
+            String fileName) {
+        return testSpecification.name + "-" + testSpecification.flinkVersion + "/" + fileName;
     }
 
     private TypeSerializerSnapshot<UpgradedElementT> snapshotUnderTest(
             TestSpecification<PreviousElementT, UpgradedElementT> testSpecification)
             throws Exception {
         return readSerializerSnapshot(
-                contentsOf(getSerializerSnapshotFilePath(testSpecification)),
+                contentsOfResource(getTestResourcePath(testSpecification, "serializer-snapshot")),
                 testSpecification.flinkVersion);
     }
 
     private DataInputView dataUnderTest(
             TestSpecification<PreviousElementT, UpgradedElementT> testSpecification) {
-        return contentsOf(getTestDataFilePath(testSpecification));
+        return contentsOfResource(getTestResourcePath(testSpecification, "test-data"));
     }
 
     private static void writeContentsTo(Path path, byte[] bytes) {
@@ -521,6 +509,23 @@ public abstract class TypeSerializerUpgradeTestBase<PreviousElementT, UpgradedEl
             return new DataInputDeserializer(bytes);
         } catch (IOException e) {
             throw new RuntimeException("Failed to read contents of " + path, e);
+        }
+    }
+
+    private static DataInputView contentsOfResource(String resourcePath) {
+        try {
+            java.io.InputStream stream =
+                    TypeSerializerUpgradeTestBase.class
+                            .getClassLoader()
+                            .getResourceAsStream(resourcePath);
+            if (stream == null) {
+                throw new RuntimeException("Resource not found: " + resourcePath);
+            }
+            byte[] bytes = stream.readAllBytes();
+            stream.close();
+            return new DataInputDeserializer(bytes);
+        } catch (IOException e) {
+            throw new RuntimeException("Failed to read resource: " + resourcePath, e);
         }
     }
 

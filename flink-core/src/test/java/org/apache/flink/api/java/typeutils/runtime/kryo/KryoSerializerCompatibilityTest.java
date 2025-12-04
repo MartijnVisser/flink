@@ -33,7 +33,6 @@ import org.junit.jupiter.api.Test;
 
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
-import java.io.FileInputStream;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -129,12 +128,20 @@ public class KryoSerializerCompatibilityTest {
 
         assertThatThrownBy(
                         () -> {
-                            try (FileInputStream f =
-                                            new FileInputStream(
-                                                    "src/test/resources/type-with-avro-serialized-using-kryo");
-                                    DataInputViewStreamWrapper inputView =
-                                            new DataInputViewStreamWrapper(f)) {
+                            java.io.InputStream stream =
+                                    getClass()
+                                            .getClassLoader()
+                                            .getResourceAsStream(
+                                                    "type-with-avro-serialized-using-kryo");
+                            if (stream == null) {
+                                throw new RuntimeException(
+                                        "Resource not found: type-with-avro-serialized-using-kryo");
+                            }
+                            try (DataInputViewStreamWrapper inputView =
+                                    new DataInputViewStreamWrapper(stream)) {
                                 kryoSerializer.deserialize(inputView);
+                            } finally {
+                                stream.close();
                             }
                         })
                 .hasMessageContaining("Could not find required Avro dependency");
@@ -156,13 +163,19 @@ public class KryoSerializerCompatibilityTest {
             KryoSerializer<FakeClass> kryoSerializer =
                     new KryoSerializer<>(FakeClass.class, serializerConfigImpl);
 
-            try (FileInputStream f =
-                            new FileInputStream(
-                                    "src/test/resources/type-without-avro-serialized-using-kryo");
-                    DataInputViewStreamWrapper inputView = new DataInputViewStreamWrapper(f)) {
-
+            java.io.InputStream stream =
+                    getClass()
+                            .getClassLoader()
+                            .getResourceAsStream("type-without-avro-serialized-using-kryo");
+            if (stream == null) {
+                throw new RuntimeException(
+                        "Resource not found: type-without-avro-serialized-using-kryo");
+            }
+            try (DataInputViewStreamWrapper inputView = new DataInputViewStreamWrapper(stream)) {
                 FakeClass myTestClass = kryoSerializer.deserialize(inputView);
                 assertThat(myTestClass.array).hasSize(3).containsExactly(10, 20, 30);
+            } finally {
+                stream.close();
             }
         }
     }

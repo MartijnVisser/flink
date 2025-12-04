@@ -31,16 +31,16 @@ import org.apache.flink.util.Collector;
 
 import org.junit.jupiter.api.Test;
 
-import java.io.File;
+import java.io.BufferedReader;
 import java.io.IOException;
-import java.net.URL;
+import java.io.InputStream;
+import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
-import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
+import java.util.Objects;
 import java.util.stream.Collectors;
 
 import static org.apache.flink.connector.testutils.formats.SchemaTestUtils.open;
@@ -259,10 +259,13 @@ class MaxwellJsonSerDerTest {
     // --------------------------------------------------------------------------------------------
 
     private static List<String> readLines(String resource) throws IOException {
-        final URL url = MaxwellJsonSerDerTest.class.getClassLoader().getResource(resource);
-        assert url != null;
-        Path path = new File(url.getFile()).toPath();
-        return Files.readAllLines(path);
+        InputStream stream =
+                MaxwellJsonSerDerTest.class.getClassLoader().getResourceAsStream(resource);
+        Objects.requireNonNull(stream, "Resource not found: " + resource);
+        try (BufferedReader reader =
+                new BufferedReader(new InputStreamReader(stream, StandardCharsets.UTF_8))) {
+            return reader.lines().collect(Collectors.toList());
+        }
     }
 
     private static class SimpleCollector implements Collector<RowData> {

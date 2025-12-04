@@ -20,12 +20,10 @@ package org.apache.flink.formats.json;
 
 import org.apache.flink.api.common.typeinfo.TypeInformation;
 import org.apache.flink.api.common.typeinfo.Types;
-import org.apache.flink.util.FileUtils;
 
 import org.junit.jupiter.api.Test;
 
-import java.io.File;
-import java.net.URL;
+import java.io.InputStream;
 import java.util.Objects;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -36,9 +34,12 @@ class JsonRowSchemaConverterTest {
 
     @Test
     void testComplexSchema() throws Exception {
-        final URL url = getClass().getClassLoader().getResource("complex-schema.json");
-        Objects.requireNonNull(url);
-        final String schema = FileUtils.readFileUtf8(new File(url.getFile()));
+        final InputStream stream =
+                getClass().getClassLoader().getResourceAsStream("complex-schema.json");
+        Objects.requireNonNull(stream, "Resource not found: complex-schema.json");
+        final String schema =
+                new String(stream.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
+        stream.close();
         final TypeInformation<?> result = JsonRowSchemaConverter.convert(schema);
 
         final TypeInformation<?> expected =
@@ -72,9 +73,12 @@ class JsonRowSchemaConverterTest {
 
     @Test
     void testReferenceSchema() throws Exception {
-        final URL url = getClass().getClassLoader().getResource("reference-schema.json");
-        Objects.requireNonNull(url);
-        final String schema = FileUtils.readFileUtf8(new File(url.getFile()));
+        final InputStream stream =
+                getClass().getClassLoader().getResourceAsStream("reference-schema.json");
+        Objects.requireNonNull(stream, "Resource not found: reference-schema.json");
+        final String schema =
+                new String(stream.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
+        stream.close();
         final TypeInformation<?> result = JsonRowSchemaConverter.convert(schema);
 
         final TypeInformation<?> expected =
