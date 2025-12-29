@@ -1,5 +1,5 @@
 ---
-title: Intro to the DataStream API
+title: Learn the DataStream API
 weight: 5
 type: docs
 ---
@@ -22,7 +22,7 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# Intro to the DataStream API
+# Learn the DataStream API
 
 The focus of this training is to broadly cover the DataStream API well enough that you will be able
 to get started writing streaming applications.
