@@ -1,9 +1,11 @@
 ---
-title: Try Flink
+title: Getting Started
 icon: <i class="fa fa-rocket title appetizer" aria-hidden="true"></i>
 bold: true
 bookCollapseSection: true
 weight: 1
+aliases:
+  - /docs/getting-started/
 ---
 <!--
 Licensed to the Apache Software Foundation (ASF) under one

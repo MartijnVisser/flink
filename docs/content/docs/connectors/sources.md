@@ -1,9 +1,10 @@
 ---
 title: "Data Sources"
-weight: 11
+weight: 1
 type: docs
 aliases:
   - /dev/stream/sources.html
+  - /docs/dev/datastream/sources/
 ---
 <!--
 Licensed to the Apache Software Foundation (ASF) under one

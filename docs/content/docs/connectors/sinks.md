@@ -1,9 +1,10 @@
 ---
 title: "Data Sinks"
-weight: 12
+weight: 2
 type: docs
 aliases:
   - /dev/stream/sinks.html
+  - /docs/dev/datastream/sinks/
 ---
 <!--
 Licensed to the Apache Software Foundation (ASF) under one
