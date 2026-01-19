@@ -83,6 +83,13 @@ jobs:
             chesnay/flink-ci:java_8_11_17_21_maven_386_jammy \
             bash -c "apt-get update && apt-get install -y rsync && cd /root/flink && ./.github/workflows/docs.sh"
 
+      - name: Upload docs artifact for validation
+        uses: actions/upload-artifact@v4
+        with:
+          name: docs-${{ inputs.branch }}
+          path: docs/target/
+          retention-days: 7
+
       - name: Upload documentation
         uses: burnett01/rsync-deployments@0dc935cdecc5f5e571865e60d2a6cdc673704823 # 5.2
         with:
