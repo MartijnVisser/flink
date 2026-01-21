@@ -95,7 +95,7 @@ public class FlinkSqlOperatorTable extends ReflectiveSqlOperatorTable {
     }
 
     public static List<SqlFunction> dynamicFunctions(boolean isBatchMode) {
-        return Arrays.asList(
+        return List.of(
                 new FlinkTimestampDynamicFunction(
                         SqlStdOperatorTable.LOCALTIME.getName(), SqlTypeName.TIME, isBatchMode),
                 new FlinkTimestampDynamicFunction(
