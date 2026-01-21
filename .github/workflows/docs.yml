@@ -73,6 +73,7 @@ jobs:
         with:
           name: docs-${{ inputs.branch }}
           path: docs/target/
+          include-hidden-files: true
           retention-days: 7
 
       - name: Upload documentation
