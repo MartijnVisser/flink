@@ -53,6 +53,7 @@ import org.apache.flink.runtime.jobgraph.JobVertexID;
 import org.apache.flink.runtime.jobgraph.OperatorID;
 import org.apache.flink.runtime.jobgraph.tasks.CheckpointCoordinatorConfiguration;
 import org.apache.flink.runtime.jobgraph.tasks.JobCheckpointingSettings;
+import org.apache.flink.runtime.jobmaster.ExecutionDeploymentTracker;
 import org.apache.flink.runtime.jobmaster.LogicalSlot;
 import org.apache.flink.runtime.jobmaster.TestingLogicalSlotBuilder;
 import org.apache.flink.runtime.jobmaster.slotpool.PhysicalSlotProvider;
@@ -105,6 +106,17 @@ public class SchedulerTestingUtils {
             final ScheduledExecutorService executorService)
             throws Exception {
         return new DefaultSchedulerBuilder(jobGraph, mainThreadExecutor, executorService).build();
+    }
+
+    public static DefaultScheduler createScheduler(
+            final JobGraph jobGraph,
+            final ComponentMainThreadExecutor mainThreadExecutor,
+            final ScheduledExecutorService executorService,
+            final ExecutionDeploymentTracker executionDeploymentTracker)
+            throws Exception {
+        return new DefaultSchedulerBuilder(jobGraph, mainThreadExecutor, executorService)
+                .setExecutionDeploymentTracker(executionDeploymentTracker)
+                .build();
     }
 
     public static void enableCheckpointing(final JobGraph jobGraph) {

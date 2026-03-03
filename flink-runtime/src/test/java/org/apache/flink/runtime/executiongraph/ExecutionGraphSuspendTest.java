@@ -31,6 +31,7 @@ import org.apache.flink.runtime.scheduler.SchedulerBase;
 import org.apache.flink.runtime.scheduler.SchedulerTestingUtils;
 import org.apache.flink.runtime.scheduler.TestingPhysicalSlotProvider;
 import org.apache.flink.runtime.testtasks.NoOpInvokable;
+import org.apache.flink.runtime.testutils.DirectScheduledExecutorService;
 import org.apache.flink.testutils.TestingUtils;
 import org.apache.flink.testutils.executor.TestExecutorExtension;
 import org.apache.flink.util.concurrent.ManuallyTriggeredScheduledExecutor;
@@ -45,10 +46,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 /** Validates that suspending out of various states works correctly. */
 class ExecutionGraphSuspendTest {
-
-    @RegisterExtension
-    static final TestExecutorExtension<ScheduledExecutorService> EXECUTOR_RESOURCE =
-            TestingUtils.jmAsyncThreadExecutorExtension();
 
     @RegisterExtension
     static final TestExecutorExtension<ScheduledExecutorService> JM_MAIN_THREAD_EXECUTOR_RESOURCE =
@@ -267,32 +264,36 @@ class ExecutionGraphSuspendTest {
         final SchedulerBase scheduler =
                 new DefaultSchedulerBuilder(
                                 JobGraphTestUtils.emptyJobGraph(),
-                                ComponentMainThreadExecutorServiceAdapter.forMainThread(),
-                                EXECUTOR_RESOURCE.getExecutor())
+                                ComponentMainThreadExecutorServiceAdapter.forSingleThreadExecutor(
+                                        JM_MAIN_THREAD_EXECUTOR_RESOURCE.getExecutor()),
+                                new DirectScheduledExecutorService())
                         .setRestartBackoffTimeStrategy(
                                 new TestRestartBackoffTimeStrategy(true, Long.MAX_VALUE))
                         .setDelayExecutor(taskRestartExecutor)
                         .build();
 
-        scheduler.startScheduling();
+        runInMainThread(
+                () -> {
+                    scheduler.startScheduling();
 
-        final ExecutionGraph eg = scheduler.getExecutionGraph();
+                    final ExecutionGraph eg = scheduler.getExecutionGraph();
 
-        assertThat(eg.getState()).isEqualTo(JobStatus.RUNNING);
-        ExecutionGraphTestUtils.switchAllVerticesToRunning(eg);
+                    assertThat(eg.getState()).isEqualTo(JobStatus.RUNNING);
+                    ExecutionGraphTestUtils.switchAllVerticesToRunning(eg);
 
-        scheduler.handleGlobalFailure(new Exception("test"));
-        assertThat(eg.getState()).isEqualTo(JobStatus.RESTARTING);
+                    scheduler.handleGlobalFailure(new Exception("test"));
+                    assertThat(eg.getState()).isEqualTo(JobStatus.RESTARTING);
 
-        ExecutionGraphTestUtils.completeCancellingForAllVertices(eg);
-        assertThat(eg.getState()).isEqualTo(JobStatus.RESTARTING);
+                    ExecutionGraphTestUtils.completeCancellingForAllVertices(eg);
+                    assertThat(eg.getState()).isEqualTo(JobStatus.RESTARTING);
 
-        scheduler.closeAsync();
+                    scheduler.closeAsync();
 
-        assertThat(eg.getState()).isEqualTo(JobStatus.SUSPENDED);
+                    assertThat(eg.getState()).isEqualTo(JobStatus.SUSPENDED);
 
-        taskRestartExecutor.triggerScheduledTasks();
-        assertThat(eg.getState()).isEqualTo(JobStatus.SUSPENDED);
+                    taskRestartExecutor.triggerScheduledTasks();
+                    assertThat(eg.getState()).isEqualTo(JobStatus.SUSPENDED);
+                });
     }
 
     // ------------------------------------------------------------------------
@@ -301,12 +302,11 @@ class ExecutionGraphSuspendTest {
 
     private static void ensureCannotLeaveSuspendedState(
             SchedulerBase scheduler, InteractionsCountingTaskManagerGateway gateway) {
-        final ExecutionGraph eg = scheduler.getExecutionGraph();
-
         gateway.waitUntilAllTasksAreSubmitted();
 
         runInMainThread(
                 () -> {
+                    final ExecutionGraph eg = scheduler.getExecutionGraph();
                     assertThat(eg.getState()).isEqualTo(JobStatus.SUSPENDED);
                     gateway.resetCounts();
 
@@ -354,7 +354,7 @@ class ExecutionGraphSuspendTest {
                                 JobGraphTestUtils.streamingJobGraph(vertex),
                                 ComponentMainThreadExecutorServiceAdapter.forSingleThreadExecutor(
                                         JM_MAIN_THREAD_EXECUTOR_RESOURCE.getExecutor()),
-                                EXECUTOR_RESOURCE.getExecutor())
+                                new DirectScheduledExecutorService())
                         .setExecutionSlotAllocatorFactory(
                                 SchedulerTestingUtils.newSlotSharingExecutionSlotAllocatorFactory(
                                         TestingPhysicalSlotProvider

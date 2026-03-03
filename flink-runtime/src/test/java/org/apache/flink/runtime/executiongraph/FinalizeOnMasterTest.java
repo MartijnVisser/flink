@@ -19,21 +19,17 @@
 package org.apache.flink.runtime.executiongraph;
 
 import org.apache.flink.api.common.JobStatus;
-import org.apache.flink.runtime.concurrent.ComponentMainThreadExecutorServiceAdapter;
 import org.apache.flink.runtime.jobgraph.JobGraphTestUtils;
 import org.apache.flink.runtime.jobgraph.JobVertex;
 import org.apache.flink.runtime.jobgraph.JobVertex.FinalizeOnMasterContext;
 import org.apache.flink.runtime.scheduler.SchedulerBase;
 import org.apache.flink.runtime.testtasks.NoOpInvokable;
-import org.apache.flink.testutils.TestingUtils;
-import org.apache.flink.testutils.executor.TestExecutorExtension;
+import org.apache.flink.runtime.testutils.DirectScheduledExecutorService;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.RegisterExtension;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-
-import java.util.concurrent.ScheduledExecutorService;
 
 import static org.apache.flink.runtime.scheduler.SchedulerTestingUtils.createScheduler;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -50,8 +46,12 @@ class FinalizeOnMasterTest {
     private static final Logger LOG = LoggerFactory.getLogger(FinalizeOnMasterTest.class);
 
     @RegisterExtension
-    static final TestExecutorExtension<ScheduledExecutorService> EXECUTOR_RESOURCE =
-            TestingUtils.defaultExecutorExtension();
+    static final TestingComponentMainThreadExecutor.Extension MAIN_EXECUTOR_RESOURCE =
+            new TestingComponentMainThreadExecutor.Extension();
+
+    private final MainThreadExecutionGraphTestUtils mainThreadUtils =
+            new MainThreadExecutionGraphTestUtils(
+                    MAIN_EXECUTOR_RESOURCE.getComponentMainThreadTestExecutor());
 
     @Test
     void testFinalizeIsCalledUponSuccess() throws Exception {
@@ -66,9 +66,10 @@ class FinalizeOnMasterTest {
         final SchedulerBase scheduler =
                 createScheduler(
                         JobGraphTestUtils.streamingJobGraph(vertex1, vertex2),
-                        ComponentMainThreadExecutorServiceAdapter.forMainThread(),
-                        EXECUTOR_RESOURCE.getExecutor());
-        scheduler.startScheduling();
+                        mainThreadUtils.getMainThreadExecutor(),
+                        new DirectScheduledExecutorService());
+
+        mainThreadUtils.execute(scheduler::startScheduling);
 
         final ExecutionGraph eg = scheduler.getExecutionGraph();
         if (!eg.getState().equals(JobStatus.RUNNING)) {
@@ -78,10 +79,10 @@ class FinalizeOnMasterTest {
         }
         assertThat(eg.getState()).isEqualTo(JobStatus.RUNNING);
 
-        ExecutionGraphTestUtils.switchAllVerticesToRunning(eg);
+        mainThreadUtils.switchAllVerticesToRunning(eg);
 
         // move all vertices to finished state
-        ExecutionGraphTestUtils.finishAllVertices(eg);
+        mainThreadUtils.finishAllVertices(eg);
         assertThat(eg.waitUntilTerminal()).isEqualTo(JobStatus.FINISHED);
 
         verify(vertex1, times(1)).finalizeOnMaster(any(FinalizeOnMasterContext.class));
@@ -99,20 +100,21 @@ class FinalizeOnMasterTest {
         final SchedulerBase scheduler =
                 createScheduler(
                         JobGraphTestUtils.streamingJobGraph(vertex),
-                        ComponentMainThreadExecutorServiceAdapter.forMainThread(),
-                        EXECUTOR_RESOURCE.getExecutor());
-        scheduler.startScheduling();
+                        mainThreadUtils.getMainThreadExecutor(),
+                        new DirectScheduledExecutorService());
+
+        mainThreadUtils.execute(scheduler::startScheduling);
 
         final ExecutionGraph eg = scheduler.getExecutionGraph();
 
         assertThat(eg.getState()).isEqualTo(JobStatus.RUNNING);
 
-        ExecutionGraphTestUtils.switchAllVerticesToRunning(eg);
+        mainThreadUtils.switchAllVerticesToRunning(eg);
 
         // fail the execution
         final Execution exec =
                 eg.getJobVertex(vertex.getID()).getTaskVertices()[0].getCurrentExecutionAttempt();
-        exec.fail(new Exception("test"));
+        mainThreadUtils.execute(() -> exec.fail(new Exception("test")));
 
         assertThat(eg.waitUntilTerminal()).isEqualTo(JobStatus.FAILED);
 

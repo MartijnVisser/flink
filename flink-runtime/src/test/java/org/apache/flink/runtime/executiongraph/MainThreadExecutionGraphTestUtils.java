@@ -28,8 +28,8 @@ import org.apache.flink.util.function.ThrowingRunnable;
  * calls through a {@link TestingComponentMainThreadExecutor}.
  *
  * <p>Use this in tests that create a proper main thread executor (via {@link
- * TestingComponentMainThreadExecutor.Extension}) instead of calling {@link
- * ExecutionGraphTestUtils} directly from the test thread.
+ * TestingComponentMainThreadExecutor.Extension}) instead of calling {@link ExecutionGraphTestUtils}
+ * directly from the test thread.
  */
 public class MainThreadExecutionGraphTestUtils {
 
@@ -45,8 +45,7 @@ public class MainThreadExecutionGraphTestUtils {
     }
 
     public void switchAllVerticesToRunning(ExecutionGraph eg) {
-        mainThreadExecutor.execute(
-                () -> ExecutionGraphTestUtils.switchAllVerticesToRunning(eg));
+        mainThreadExecutor.execute(() -> ExecutionGraphTestUtils.switchAllVerticesToRunning(eg));
     }
 
     public void completeCancellingForAllVertices(ExecutionGraph eg) {
@@ -59,8 +58,12 @@ public class MainThreadExecutionGraphTestUtils {
     }
 
     public void finishJobVertex(ExecutionGraph eg, JobVertexID jobVertexId) {
+        mainThreadExecutor.execute(() -> ExecutionGraphTestUtils.finishJobVertex(eg, jobVertexId));
+    }
+
+    public void switchAllVerticesToInitializing(ExecutionGraph eg) {
         mainThreadExecutor.execute(
-                () -> ExecutionGraphTestUtils.finishJobVertex(eg, jobVertexId));
+                () -> ExecutionGraphTestUtils.switchAllVerticesToInitializing(eg));
     }
 
     public void switchToRunning(ExecutionGraph eg) {

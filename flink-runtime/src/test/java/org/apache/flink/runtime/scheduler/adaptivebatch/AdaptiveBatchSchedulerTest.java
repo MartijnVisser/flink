@@ -25,14 +25,15 @@ import org.apache.flink.configuration.BatchExecutionOptions;
 import org.apache.flink.core.failure.FailureEnricher;
 import org.apache.flink.core.failure.TestingFailureEnricher;
 import org.apache.flink.runtime.concurrent.ComponentMainThreadExecutor;
-import org.apache.flink.runtime.concurrent.ComponentMainThreadExecutorServiceAdapter;
 import org.apache.flink.runtime.execution.ExecutionState;
 import org.apache.flink.runtime.executiongraph.DefaultExecutionGraph;
 import org.apache.flink.runtime.executiongraph.Execution;
 import org.apache.flink.runtime.executiongraph.ExecutionGraph;
 import org.apache.flink.runtime.executiongraph.ExecutionJobVertex;
 import org.apache.flink.runtime.executiongraph.ExecutionVertex;
+import org.apache.flink.runtime.executiongraph.MainThreadExecutionGraphTestUtils;
 import org.apache.flink.runtime.executiongraph.ResultPartitionBytes;
+import org.apache.flink.runtime.executiongraph.TestingComponentMainThreadExecutor;
 import org.apache.flink.runtime.executiongraph.failover.FixedDelayRestartBackoffTimeStrategy.FixedDelayRestartBackoffTimeStrategyFactory;
 import org.apache.flink.runtime.executiongraph.failover.RestartBackoffTimeStrategy;
 import org.apache.flink.runtime.io.network.partition.PartitionNotFoundException;
@@ -49,8 +50,7 @@ import org.apache.flink.runtime.scheduler.SchedulerBase;
 import org.apache.flink.runtime.scheduler.exceptionhistory.RootExceptionHistoryEntry;
 import org.apache.flink.runtime.taskmanager.TaskExecutionState;
 import org.apache.flink.runtime.testtasks.NoOpInvokable;
-import org.apache.flink.testutils.TestingUtils;
-import org.apache.flink.testutils.executor.TestExecutorExtension;
+import org.apache.flink.runtime.testutils.DirectScheduledExecutorService;
 import org.apache.flink.util.concurrent.ManuallyTriggeredScheduledExecutor;
 
 import org.junit.jupiter.api.BeforeEach;
@@ -90,15 +90,17 @@ class AdaptiveBatchSchedulerTest {
     private static final long SUBPARTITION_BYTES = 100L;
 
     @RegisterExtension
-    private static final TestExecutorExtension<ScheduledExecutorService> EXECUTOR_RESOURCE =
-            TestingUtils.defaultExecutorExtension();
+    static final TestingComponentMainThreadExecutor.Extension MAIN_EXECUTOR_RESOURCE =
+            new TestingComponentMainThreadExecutor.Extension();
 
-    private ComponentMainThreadExecutor mainThreadExecutor;
+    private final MainThreadExecutionGraphTestUtils mainThreadUtils =
+            new MainThreadExecutionGraphTestUtils(
+                    MAIN_EXECUTOR_RESOURCE.getComponentMainThreadTestExecutor());
+
     private ManuallyTriggeredScheduledExecutor taskRestartExecutor;
 
     @BeforeEach
     void setUp() {
-        mainThreadExecutor = ComponentMainThreadExecutorServiceAdapter.forMainThread();
         taskRestartExecutor = new ManuallyTriggeredScheduledExecutor();
     }
 
@@ -111,9 +113,10 @@ class AdaptiveBatchSchedulerTest {
         final SchedulerBase scheduler =
                 createScheduler(jobGraph, Collections.singleton(failureEnricher), restartStrategy);
         // Triggered failure on initializeJobVertex that should be labeled
-        scheduler.startScheduling();
+        mainThreadUtils.execute(scheduler::startScheduling);
+        mainThreadUtils.execute(() -> {}); // drain: ensures async init callback completes
         final Iterable<RootExceptionHistoryEntry> exceptionHistory =
-                scheduler.requestJob().getExceptionHistory();
+                mainThreadUtils.execute(() -> scheduler.requestJob()).getExceptionHistory();
         final RootExceptionHistoryEntry failure = exceptionHistory.iterator().next();
         assertThat(failure.getException()).hasMessageContaining("The failure is not recoverable");
         assertThat(failure.getFailureLabels()).isEqualTo(failureEnricher.getFailureLabels());
@@ -130,27 +133,45 @@ class AdaptiveBatchSchedulerTest {
         SchedulerBase scheduler = createScheduler(jobGraph);
 
         final DefaultExecutionGraph graph = (DefaultExecutionGraph) scheduler.getExecutionGraph();
-        final ExecutionJobVertex sinkExecutionJobVertex = graph.getJobVertex(sink.getID());
 
-        scheduler.startScheduling();
-        assertThat(sinkExecutionJobVertex.getParallelism()).isEqualTo(-1);
+        mainThreadUtils.execute(scheduler::startScheduling);
+        mainThreadUtils.execute(
+                () -> {
+                    // drain: ensures async init callback completes
+                    final ExecutionJobVertex sinkEjv = graph.getJobVertex(sink.getID());
+                    assertThat(sinkEjv.getParallelism()).isEqualTo(-1);
+                });
 
         // trigger source1 finished.
-        transitionExecutionsState(scheduler, ExecutionState.FINISHED, source1);
-        assertThat(sinkExecutionJobVertex.getParallelism()).isEqualTo(-1);
+        mainThreadUtils.execute(
+                () -> transitionExecutionsState(scheduler, ExecutionState.FINISHED, source1));
+        mainThreadUtils.execute(
+                () -> {
+                    // drain: ensures async init callback completes
+                    final ExecutionJobVertex sinkEjv = graph.getJobVertex(sink.getID());
+                    assertThat(sinkEjv.getParallelism()).isEqualTo(-1);
+                });
 
         // trigger source2 finished.
-        transitionExecutionsState(scheduler, ExecutionState.FINISHED, source2);
-        assertThat(sinkExecutionJobVertex.getParallelism()).isEqualTo(10);
+        mainThreadUtils.execute(
+                () -> transitionExecutionsState(scheduler, ExecutionState.FINISHED, source2));
+        mainThreadUtils.execute(
+                () -> {
+                    // drain: ensures async init callback completes
+                    final ExecutionJobVertex sinkEjv = graph.getJobVertex(sink.getID());
+                    assertThat(sinkEjv.getParallelism()).isEqualTo(10);
 
-        // check that the jobGraph is updated
-        assertThat(sink.getParallelism()).isEqualTo(10);
+                    // check that the jobGraph is updated
+                    assertThat(sink.getParallelism()).isEqualTo(10);
 
-        // check aggregatedInputDataBytes of each ExecutionVertex calculated. Total number of
-        // subpartitions of source1 is ceil(128 / 6) * 6 = 132, total number of subpartitions of
-        // source2 is ceil(128 / 4) * 4 = 128, so total bytes is (132 + 128) * SUBPARTITION_BYTES =
-        // 26_000L.
-        checkAggregatedInputDataBytesIsCalculated(sinkExecutionJobVertex, 26_000L);
+                    // check aggregatedInputDataBytes of each ExecutionVertex calculated. Total
+                    // number of
+                    // subpartitions of source1 is ceil(128 / 6) * 6 = 132, total number of
+                    // subpartitions
+                    // of source2 is ceil(128 / 4) * 4 = 128, so total bytes is (132 + 128) *
+                    // SUBPARTITION_BYTES = 26_000L.
+                    checkAggregatedInputDataBytesIsCalculated(sinkEjv, 26_000L);
+                });
     }
 
     @Test
@@ -183,28 +204,44 @@ class AdaptiveBatchSchedulerTest {
                         128);
 
         final DefaultExecutionGraph graph = (DefaultExecutionGraph) scheduler.getExecutionGraph();
-        final ExecutionJobVertex mapExecutionJobVertex = graph.getJobVertex(map.getID());
-        final ExecutionJobVertex sinkExecutionJobVertex = graph.getJobVertex(sink.getID());
 
-        scheduler.startScheduling();
-        assertThat(mapExecutionJobVertex.getParallelism()).isEqualTo(-1);
-        assertThat(sinkExecutionJobVertex.getParallelism()).isEqualTo(-1);
+        mainThreadUtils.execute(scheduler::startScheduling);
+        mainThreadUtils.execute(
+                () -> {
+                    // drain: ensures async init callback completes
+                    assertThat(graph.getJobVertex(map.getID()).getParallelism()).isEqualTo(-1);
+                    assertThat(graph.getJobVertex(sink.getID()).getParallelism()).isEqualTo(-1);
+                });
 
         // trigger source finished.
-        transitionExecutionsState(scheduler, ExecutionState.FINISHED, source);
-        assertThat(mapExecutionJobVertex.getParallelism()).isEqualTo(5);
-        assertThat(sinkExecutionJobVertex.getParallelism()).isEqualTo(5);
+        mainThreadUtils.execute(
+                () -> transitionExecutionsState(scheduler, ExecutionState.FINISHED, source));
+        mainThreadUtils.execute(
+                () -> {
+                    // drain: ensures async init callback completes
+                    assertThat(graph.getJobVertex(map.getID()).getParallelism()).isEqualTo(5);
+                    assertThat(graph.getJobVertex(sink.getID()).getParallelism()).isEqualTo(5);
+                });
 
         // trigger map finished.
-        transitionExecutionsState(scheduler, ExecutionState.FINISHED, map);
-        assertThat(mapExecutionJobVertex.getParallelism()).isEqualTo(5);
-        assertThat(sinkExecutionJobVertex.getParallelism()).isEqualTo(5);
-        // check that the jobGraph is updated
-        assertThat(sink.getParallelism()).isEqualTo(5);
+        mainThreadUtils.execute(
+                () -> transitionExecutionsState(scheduler, ExecutionState.FINISHED, map));
+        mainThreadUtils.execute(
+                () -> {
+                    // drain: ensures async init callback completes
+                    assertThat(graph.getJobVertex(map.getID()).getParallelism()).isEqualTo(5);
+                    assertThat(graph.getJobVertex(sink.getID()).getParallelism()).isEqualTo(5);
+                    // check that the jobGraph is updated
+                    assertThat(sink.getParallelism()).isEqualTo(5);
 
-        // check aggregatedInputDataBytes of each ExecutionVertex calculated. Total number of
-        // subpartitions of map is 5, so total bytes sink consume is 5 * SUBPARTITION_BYTES = 500L.
-        checkAggregatedInputDataBytesIsCalculated(sinkExecutionJobVertex, 500L);
+                    // check aggregatedInputDataBytes of each ExecutionVertex calculated. Total
+                    // number of
+                    // subpartitions of map is 5, so total bytes sink consume is 5 *
+                    // SUBPARTITION_BYTES =
+                    // 500L.
+                    checkAggregatedInputDataBytesIsCalculated(
+                            graph.getJobVertex(sink.getID()), 500L);
+                });
     }
 
     @Test
@@ -222,7 +259,9 @@ class AdaptiveBatchSchedulerTest {
 
         AdaptiveBatchScheduler scheduler =
                 new DefaultSchedulerBuilder(
-                                jobGraph, mainThreadExecutor, EXECUTOR_RESOURCE.getExecutor())
+                                jobGraph,
+                                mainThreadUtils.getMainThreadExecutor(),
+                                new DirectScheduledExecutorService())
                         .setDelayExecutor(taskRestartExecutor)
                         .setPartitionTracker(partitionTracker)
                         .setRestartBackoffTimeStrategy(
@@ -233,37 +272,58 @@ class AdaptiveBatchSchedulerTest {
                         .buildAdaptiveBatchJobScheduler();
 
         final DefaultExecutionGraph graph = (DefaultExecutionGraph) scheduler.getExecutionGraph();
-        final ExecutionJobVertex source1ExecutionJobVertex = graph.getJobVertex(source1.getID());
-        final ExecutionJobVertex sinkExecutionJobVertex = graph.getJobVertex(sink.getID());
 
-        PointwiseBlockingResultInfo blockingResultInfo;
-
-        scheduler.startScheduling();
+        mainThreadUtils.execute(scheduler::startScheduling);
+        mainThreadUtils.execute(() -> {}); // drain: ensures async init callback completes
         // trigger source1 finished.
-        transitionExecutionsState(scheduler, ExecutionState.FINISHED, source1);
-        blockingResultInfo =
-                (PointwiseBlockingResultInfo) getBlockingResultInfo(scheduler, source1);
-        assertThat(blockingResultInfo.getNumOfRecordedPartitions()).isEqualTo(SOURCE_PARALLELISM_1);
+        mainThreadUtils.execute(
+                () -> transitionExecutionsState(scheduler, ExecutionState.FINISHED, source1));
+        mainThreadUtils.execute(
+                () -> {
+                    // drain: ensures async init callback completes
+                    PointwiseBlockingResultInfo blockingResultInfo =
+                            (PointwiseBlockingResultInfo) getBlockingResultInfo(scheduler, source1);
+                    assertThat(blockingResultInfo.getNumOfRecordedPartitions())
+                            .isEqualTo(SOURCE_PARALLELISM_1);
+                });
 
         // trigger source2 finished.
-        transitionExecutionsState(scheduler, ExecutionState.FINISHED, source2);
-        blockingResultInfo =
-                (PointwiseBlockingResultInfo) getBlockingResultInfo(scheduler, source2);
-        assertThat(blockingResultInfo.getNumOfRecordedPartitions()).isEqualTo(SOURCE_PARALLELISM_2);
+        mainThreadUtils.execute(
+                () -> transitionExecutionsState(scheduler, ExecutionState.FINISHED, source2));
+        mainThreadUtils.execute(
+                () -> {
+                    // drain: ensures async init callback completes
+                    PointwiseBlockingResultInfo blockingResultInfo =
+                            (PointwiseBlockingResultInfo) getBlockingResultInfo(scheduler, source2);
+                    assertThat(blockingResultInfo.getNumOfRecordedPartitions())
+                            .isEqualTo(SOURCE_PARALLELISM_2);
+                });
 
         // trigger sink fail with partition not found
-        triggerFailedByPartitionNotFound(
-                scheduler,
-                source1ExecutionJobVertex.getTaskVertices()[0],
-                sinkExecutionJobVertex.getTaskVertices()[0]);
+        mainThreadUtils.execute(
+                () -> {
+                    final ExecutionJobVertex source1ExecutionJobVertex =
+                            graph.getJobVertex(source1.getID());
+                    final ExecutionJobVertex sinkExecutionJobVertex =
+                            graph.getJobVertex(sink.getID());
+                    triggerFailedByPartitionNotFound(
+                            scheduler,
+                            source1ExecutionJobVertex.getTaskVertices()[0],
+                            sinkExecutionJobVertex.getTaskVertices()[0]);
+                });
+        mainThreadUtils.execute(() -> {}); // drain: ensures async failure handling completes
 
         taskRestartExecutor.triggerScheduledTasks();
-
-        // check the partition info is reset
-        assertThat(
-                        ((PointwiseBlockingResultInfo) getBlockingResultInfo(scheduler, source1))
-                                .getNumOfRecordedPartitions())
-                .isEqualTo(SOURCE_PARALLELISM_1 - 1);
+        mainThreadUtils.execute(
+                () -> {
+                    // drain: ensures restart processing completes
+                    // check the partition info is reset
+                    assertThat(
+                                    ((PointwiseBlockingResultInfo)
+                                                    getBlockingResultInfo(scheduler, source1))
+                                            .getNumOfRecordedPartitions())
+                            .isEqualTo(SOURCE_PARALLELISM_1 - 1);
+                });
     }
 
     /**
@@ -299,15 +359,21 @@ class AdaptiveBatchSchedulerTest {
                         createDecider(1, 16, 4 * SUBPARTITION_BYTES),
                         16);
 
-        final DefaultExecutionGraph graph = (DefaultExecutionGraph) scheduler.getExecutionGraph();
-        final ExecutionJobVertex sinkExecutionJobVertex = graph.getJobVertex(sink.getID());
-
-        scheduler.startScheduling();
-        transitionExecutionsState(scheduler, ExecutionState.FINISHED, source);
-
-        // check sink's parallelism
-        assertThat(sinkExecutionJobVertex.getParallelism()).isEqualTo(8);
-        assertThat(sink.getParallelism()).isEqualTo(8);
+        mainThreadUtils.execute(scheduler::startScheduling);
+        mainThreadUtils.execute(() -> {}); // drain: ensures async init callback completes
+        mainThreadUtils.execute(
+                () -> transitionExecutionsState(scheduler, ExecutionState.FINISHED, source));
+        mainThreadUtils.execute(
+                () -> {
+                    // drain: ensures async init callback completes
+                    final DefaultExecutionGraph graph =
+                            (DefaultExecutionGraph) scheduler.getExecutionGraph();
+                    final ExecutionJobVertex sinkExecutionJobVertex =
+                            graph.getJobVertex(sink.getID());
+                    // check sink's parallelism
+                    assertThat(sinkExecutionJobVertex.getParallelism()).isEqualTo(8);
+                    assertThat(sink.getParallelism()).isEqualTo(8);
+                });
     }
 
     @Test
@@ -320,11 +386,16 @@ class AdaptiveBatchSchedulerTest {
         SchedulerBase scheduler =
                 createScheduler(new JobGraph(new JobID(), "test job", source, sink));
         final DefaultExecutionGraph graph = (DefaultExecutionGraph) scheduler.getExecutionGraph();
-        final ExecutionJobVertex sinkExecutionJobVertex = graph.getJobVertex(sink.getID());
 
-        scheduler.startScheduling();
-        // check sink is not initialized
-        assertThat(sinkExecutionJobVertex.isInitialized()).isTrue();
+        mainThreadUtils.execute(scheduler::startScheduling);
+        mainThreadUtils.execute(
+                () -> {
+                    // drain: ensures async init callback completes
+                    // check sink is initialized
+                    final ExecutionJobVertex sinkExecutionJobVertex =
+                            graph.getJobVertex(sink.getID());
+                    assertThat(sinkExecutionJobVertex.isInitialized()).isTrue();
+                });
     }
 
     @Test
@@ -354,10 +425,13 @@ class AdaptiveBatchSchedulerTest {
                         createDecider(1, 128, 1L, 32),
                         128);
 
-        scheduler.startScheduling();
-
-        // check source's parallelism
-        assertThat(source.getParallelism()).isEqualTo(8);
+        mainThreadUtils.execute(scheduler::startScheduling);
+        mainThreadUtils.execute(
+                () -> {
+                    // drain: ensures async init callback completes
+                    // check source's parallelism
+                    assertThat(source.getParallelism()).isEqualTo(8);
+                });
     }
 
     @Test
@@ -425,11 +499,16 @@ class AdaptiveBatchSchedulerTest {
                                 globalMinParallelism, globalMaxParallelism, dataVolumePerTask),
                         globalMaxParallelism);
 
-        scheduler.startScheduling();
-        transitionExecutionsState(scheduler, ExecutionState.FINISHED, source);
-
-        // check sink's parallelism
-        assertThat(sink.getParallelism()).isEqualTo(expectedParallelism);
+        mainThreadUtils.execute(scheduler::startScheduling);
+        mainThreadUtils.execute(() -> {}); // drain: ensures async init callback completes
+        mainThreadUtils.execute(
+                () -> transitionExecutionsState(scheduler, ExecutionState.FINISHED, source));
+        mainThreadUtils.execute(
+                () -> {
+                    // drain: ensures async init callback completes
+                    // check sink's parallelism
+                    assertThat(sink.getParallelism()).isEqualTo(expectedParallelism);
+                });
     }
 
     private BlockingResultInfo getBlockingResultInfo(
@@ -594,13 +673,13 @@ class AdaptiveBatchSchedulerTest {
     }
 
     private DefaultSchedulerBuilder createSchedulerBuilder(JobGraph jobGraph) {
-        return createSchedulerBuilder(jobGraph, mainThreadExecutor);
+        return createSchedulerBuilder(jobGraph, mainThreadUtils.getMainThreadExecutor());
     }
 
     private DefaultSchedulerBuilder createSchedulerBuilder(
             JobGraph jobGraph, ComponentMainThreadExecutor mainThreadExecutor) {
         return new DefaultSchedulerBuilder(
-                        jobGraph, mainThreadExecutor, EXECUTOR_RESOURCE.getExecutor())
+                        jobGraph, mainThreadExecutor, new DirectScheduledExecutorService())
                 .setDelayExecutor(taskRestartExecutor);
     }
 }

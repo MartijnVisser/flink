@@ -19,10 +19,10 @@
 package org.apache.flink.runtime.scheduler;
 
 import org.apache.flink.api.common.JobID;
-import org.apache.flink.runtime.concurrent.ComponentMainThreadExecutorServiceAdapter;
 import org.apache.flink.runtime.executiongraph.DefaultExecutionGraph;
 import org.apache.flink.runtime.executiongraph.ExecutionGraph;
 import org.apache.flink.runtime.executiongraph.ExecutionJobVertex;
+import org.apache.flink.runtime.executiongraph.TestingComponentMainThreadExecutor;
 import org.apache.flink.runtime.executiongraph.TestingDefaultExecutionGraphBuilder;
 import org.apache.flink.runtime.io.network.partition.ResultPartitionType;
 import org.apache.flink.runtime.jobgraph.JobGraph;
@@ -51,6 +51,10 @@ class DefaultOperatorCoordinatorHandlerTest {
     private static final TestExecutorExtension<ScheduledExecutorService> EXECUTOR_EXTENSION =
             TestingUtils.defaultExecutorExtension();
 
+    @RegisterExtension
+    static final TestingComponentMainThreadExecutor.Extension MAIN_EXECUTOR_RESOURCE =
+            new TestingComponentMainThreadExecutor.Extension();
+
     @Test
     void testRegisterAndStartNewCoordinators() throws Exception {
 
@@ -61,19 +65,29 @@ class DefaultOperatorCoordinatorHandlerTest {
         ExecutionGraph executionGraph = createDynamicGraph(jobVertices);
         ExecutionJobVertex ejv1 = executionGraph.getJobVertex(jobVertices[0].getID());
         ExecutionJobVertex ejv2 = executionGraph.getJobVertex(jobVertices[1].getID());
-        executionGraph.start(ComponentMainThreadExecutorServiceAdapter.forMainThread());
+        executionGraph.start(
+                MAIN_EXECUTOR_RESOURCE
+                        .getComponentMainThreadTestExecutor()
+                        .getMainThreadExecutor());
 
-        executionGraph.initializeJobVertex(ejv1, 0L);
+        MAIN_EXECUTOR_RESOURCE
+                .getComponentMainThreadTestExecutor()
+                .execute(() -> executionGraph.initializeJobVertex(ejv1, 0L));
 
         DefaultOperatorCoordinatorHandler handler =
                 new DefaultOperatorCoordinatorHandler(executionGraph, throwable -> {});
         assertThat(handler.getCoordinatorMap().keySet()).contains(operatorId1);
 
-        executionGraph.initializeJobVertex(ejv2, 0L);
-        handler.registerAndStartNewCoordinators(
-                ejv2.getOperatorCoordinators(),
-                executionGraph.getJobMasterMainThreadExecutor(),
-                ejv2.getParallelism());
+        MAIN_EXECUTOR_RESOURCE
+                .getComponentMainThreadTestExecutor()
+                .execute(
+                        () -> {
+                            executionGraph.initializeJobVertex(ejv2, 0L);
+                            handler.registerAndStartNewCoordinators(
+                                    ejv2.getOperatorCoordinators(),
+                                    executionGraph.getJobMasterMainThreadExecutor(),
+                                    ejv2.getParallelism());
+                        });
 
         assertThat(handler.getCoordinatorMap().keySet()).contains(operatorId1, operatorId2);
     }

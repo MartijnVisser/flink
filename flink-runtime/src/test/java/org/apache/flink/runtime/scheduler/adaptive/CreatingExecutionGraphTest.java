@@ -21,8 +21,8 @@ package org.apache.flink.runtime.scheduler.adaptive;
 import org.apache.flink.api.common.JobStatus;
 import org.apache.flink.core.testutils.CompletedScheduledFuture;
 import org.apache.flink.runtime.concurrent.ComponentMainThreadExecutor;
-import org.apache.flink.runtime.concurrent.ComponentMainThreadExecutorServiceAdapter;
 import org.apache.flink.runtime.executiongraph.ExecutionGraph;
+import org.apache.flink.runtime.executiongraph.TestingComponentMainThreadExecutor;
 import org.apache.flink.runtime.metrics.groups.JobManagerJobMetricGroup;
 import org.apache.flink.runtime.metrics.groups.UnregisteredMetricGroups;
 import org.apache.flink.runtime.scheduler.ExecutionGraphHandler;
@@ -55,6 +55,10 @@ import static org.assertj.core.api.Assertions.assertThat;
 class CreatingExecutionGraphTest {
 
     private static final Logger LOG = LoggerFactory.getLogger(CreatingExecutionGraphTest.class);
+
+    @RegisterExtension
+    static final TestingComponentMainThreadExecutor.Extension MAIN_EXECUTOR_RESOURCE =
+            new TestingComponentMainThreadExecutor.Extension();
 
     @RegisterExtension
     private MockCreatingExecutionGraphContext context = new MockCreatingExecutionGraphContext();
@@ -244,7 +248,9 @@ class CreatingExecutionGraphTest {
 
         @Override
         public ComponentMainThreadExecutor getMainThreadExecutor() {
-            return ComponentMainThreadExecutorServiceAdapter.forMainThread();
+            return MAIN_EXECUTOR_RESOURCE
+                    .getComponentMainThreadTestExecutor()
+                    .getMainThreadExecutor();
         }
 
         @Override

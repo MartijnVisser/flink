@@ -20,13 +20,14 @@ package org.apache.flink.runtime.scheduler.exceptionhistory;
 
 import org.apache.flink.runtime.JobException;
 import org.apache.flink.runtime.client.JobExecutionException;
-import org.apache.flink.runtime.concurrent.ComponentMainThreadExecutorServiceAdapter;
 import org.apache.flink.runtime.execution.ExecutionState;
 import org.apache.flink.runtime.executiongraph.ErrorInfo;
 import org.apache.flink.runtime.executiongraph.Execution;
 import org.apache.flink.runtime.executiongraph.ExecutionGraph;
 import org.apache.flink.runtime.executiongraph.ExecutionVertex;
+import org.apache.flink.runtime.executiongraph.MainThreadExecutionGraphTestUtils;
 import org.apache.flink.runtime.executiongraph.TaskExecutionStateTransition;
+import org.apache.flink.runtime.executiongraph.TestingComponentMainThreadExecutor;
 import org.apache.flink.runtime.executiongraph.TestingDefaultExecutionGraphBuilder;
 import org.apache.flink.runtime.executiongraph.failover.FailureHandlingResult;
 import org.apache.flink.runtime.failure.FailureEnricherUtils;
@@ -35,8 +36,7 @@ import org.apache.flink.runtime.jobgraph.JobGraphTestUtils;
 import org.apache.flink.runtime.jobmaster.TestingLogicalSlotBuilder;
 import org.apache.flink.runtime.scheduler.strategy.ExecutionVertexID;
 import org.apache.flink.runtime.taskmanager.TaskExecutionState;
-import org.apache.flink.testutils.TestingUtils;
-import org.apache.flink.testutils.executor.TestExecutorExtension;
+import org.apache.flink.runtime.testutils.DirectScheduledExecutorService;
 import org.apache.flink.util.FlinkException;
 import org.apache.flink.util.SerializedThrowable;
 
@@ -50,7 +50,6 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
-import java.util.concurrent.ScheduledExecutorService;
 import java.util.stream.Collectors;
 import java.util.stream.StreamSupport;
 
@@ -64,8 +63,12 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class FailureHandlingResultSnapshotTest {
 
     @RegisterExtension
-    private static final TestExecutorExtension<ScheduledExecutorService> EXECUTOR_RESOURCE =
-            TestingUtils.defaultExecutorExtension();
+    static final TestingComponentMainThreadExecutor.Extension MAIN_EXECUTOR_RESOURCE =
+            new TestingComponentMainThreadExecutor.Extension();
+
+    private final MainThreadExecutionGraphTestUtils mainThreadUtils =
+            new MainThreadExecutionGraphTestUtils(
+                    MAIN_EXECUTOR_RESOURCE.getComponentMainThreadTestExecutor());
 
     private ExecutionGraph executionGraph;
 
@@ -77,8 +80,9 @@ class FailureHandlingResultSnapshotTest {
         executionGraph =
                 TestingDefaultExecutionGraphBuilder.newBuilder()
                         .setJobGraph(jobGraph)
-                        .build(EXECUTOR_RESOURCE.getExecutor());
-        executionGraph.start(ComponentMainThreadExecutorServiceAdapter.forMainThread());
+                        .build(new DirectScheduledExecutorService());
+        mainThreadUtils.execute(
+                () -> executionGraph.start(mainThreadUtils.getMainThreadExecutor()));
     }
 
     @Test
@@ -281,30 +285,37 @@ class FailureHandlingResultSnapshotTest {
     }
 
     private long triggerFailure(ExecutionVertex executionVertex, Throwable throwable) {
-        executionGraph.updateState(
-                new TaskExecutionStateTransition(
-                        new TaskExecutionState(
-                                executionVertex.getCurrentExecutionAttempt().getAttemptId(),
-                                ExecutionState.FAILED,
-                                throwable)));
+        return mainThreadUtils.execute(
+                () -> {
+                    executionGraph.updateState(
+                            new TaskExecutionStateTransition(
+                                    new TaskExecutionState(
+                                            executionVertex
+                                                    .getCurrentExecutionAttempt()
+                                                    .getAttemptId(),
+                                            ExecutionState.FAILED,
+                                            throwable)));
 
-        return executionVertex
-                .getFailureInfo()
-                .orElseThrow(
-                        () ->
-                                new IllegalArgumentException(
-                                        "The transition into failed state didn't succeed for ExecutionVertex "
-                                                + executionVertex.getID()
-                                                + "."))
-                .getTimestamp();
+                    return executionVertex
+                            .getFailureInfo()
+                            .orElseThrow(
+                                    () ->
+                                            new IllegalArgumentException(
+                                                    "The transition into failed state didn't succeed for ExecutionVertex "
+                                                            + executionVertex.getID()
+                                                            + "."))
+                            .getTimestamp();
+                });
     }
 
     private ExecutionVertex extractExecutionVertex(int pos) {
-        final ExecutionVertex executionVertex =
-                Iterables.get(executionGraph.getAllExecutionVertices(), pos);
-        executionVertex.tryAssignResource(
-                new TestingLogicalSlotBuilder().createTestingLogicalSlot());
-
-        return executionVertex;
+        return mainThreadUtils.execute(
+                () -> {
+                    final ExecutionVertex executionVertex =
+                            Iterables.get(executionGraph.getAllExecutionVertices(), pos);
+                    executionVertex.tryAssignResource(
+                            new TestingLogicalSlotBuilder().createTestingLogicalSlot());
+                    return executionVertex;
+                });
     }
 }

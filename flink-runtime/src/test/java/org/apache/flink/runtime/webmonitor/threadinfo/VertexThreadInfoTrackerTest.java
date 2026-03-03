@@ -20,13 +20,13 @@ package org.apache.flink.runtime.webmonitor.threadinfo;
 
 import org.apache.flink.api.common.JobID;
 import org.apache.flink.runtime.clusterframework.types.ResourceID;
-import org.apache.flink.runtime.concurrent.ComponentMainThreadExecutorServiceAdapter;
 import org.apache.flink.runtime.execution.ExecutionState;
 import org.apache.flink.runtime.executiongraph.ExecutionAttemptID;
 import org.apache.flink.runtime.executiongraph.ExecutionGraph;
-import org.apache.flink.runtime.executiongraph.ExecutionGraphTestUtils;
 import org.apache.flink.runtime.executiongraph.ExecutionJobVertex;
 import org.apache.flink.runtime.executiongraph.ExecutionVertex;
+import org.apache.flink.runtime.executiongraph.MainThreadExecutionGraphTestUtils;
+import org.apache.flink.runtime.executiongraph.TestingComponentMainThreadExecutor;
 import org.apache.flink.runtime.jobgraph.JobGraphTestUtils;
 import org.apache.flink.runtime.jobgraph.JobVertex;
 import org.apache.flink.runtime.jobgraph.tasks.AbstractInvokable;
@@ -52,6 +52,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.TestTemplate;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.api.extension.RegisterExtension;
 
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
@@ -85,6 +86,14 @@ import static org.assertj.core.api.AssertionsForClassTypes.assertThat;
 /** Tests for the {@link VertexThreadInfoTracker}. */
 @ExtendWith(ParameterizedTestExtension.class)
 class VertexThreadInfoTrackerTest {
+
+    @RegisterExtension
+    static final TestingComponentMainThreadExecutor.Extension MAIN_EXECUTOR_RESOURCE =
+            new TestingComponentMainThreadExecutor.Extension();
+
+    private final MainThreadExecutionGraphTestUtils mainThreadUtils =
+            new MainThreadExecutionGraphTestUtils(
+                    MAIN_EXECUTOR_RESOURCE.getComponentMainThreadTestExecutor());
 
     private static final int REQUEST_ID = 0;
     private static final int PARALLELISM = 10;
@@ -585,16 +594,16 @@ class VertexThreadInfoTrackerTest {
             final SchedulerBase scheduler =
                     createScheduler(
                             JobGraphTestUtils.streamingJobGraph(jobVertex),
-                            ComponentMainThreadExecutorServiceAdapter.forMainThread(),
+                            mainThreadUtils.getMainThreadExecutor(),
                             new DirectScheduledExecutorService());
             final ExecutionGraph eg = scheduler.getExecutionGraph();
-            scheduler.startScheduling();
+            mainThreadUtils.execute(scheduler::startScheduling);
             switch (executionState) {
                 case RUNNING:
-                    ExecutionGraphTestUtils.switchAllVerticesToRunning(eg);
+                    mainThreadUtils.switchAllVerticesToRunning(eg);
                     break;
                 case INITIALIZING:
-                    ExecutionGraphTestUtils.switchAllVerticesToInitializing(eg);
+                    mainThreadUtils.switchAllVerticesToInitializing(eg);
                     break;
                 default:
                     throw new IllegalArgumentException("Just support RUNNING and INITIALIZING.");

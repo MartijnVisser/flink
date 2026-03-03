@@ -24,8 +24,9 @@ import org.apache.flink.configuration.SlowTaskDetectorOptions;
 import org.apache.flink.runtime.concurrent.ComponentMainThreadExecutorServiceAdapter;
 import org.apache.flink.runtime.executiongraph.ExecutionAttemptID;
 import org.apache.flink.runtime.executiongraph.ExecutionGraph;
-import org.apache.flink.runtime.executiongraph.ExecutionGraphTestUtils;
 import org.apache.flink.runtime.executiongraph.ExecutionVertex;
+import org.apache.flink.runtime.executiongraph.MainThreadExecutionGraphTestUtils;
+import org.apache.flink.runtime.executiongraph.TestingComponentMainThreadExecutor;
 import org.apache.flink.runtime.io.network.partition.ResultPartitionType;
 import org.apache.flink.runtime.jobgraph.DistributionPattern;
 import org.apache.flink.runtime.jobgraph.JobGraph;
@@ -38,9 +39,8 @@ import org.apache.flink.runtime.scheduler.SchedulerTestingUtils;
 import org.apache.flink.runtime.scheduler.slowtaskdetector.ExecutionTimeBasedSlowTaskDetector.ExecutionTimeWithInputBytes;
 import org.apache.flink.runtime.scheduler.strategy.ExecutionVertexID;
 import org.apache.flink.runtime.testtasks.NoOpInvokable;
+import org.apache.flink.runtime.testutils.DirectScheduledExecutorService;
 import org.apache.flink.runtime.util.TestingFatalErrorHandler;
-import org.apache.flink.testutils.TestingUtils;
-import org.apache.flink.testutils.executor.TestExecutorExtension;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.RegisterExtension;
@@ -52,7 +52,6 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.ScheduledExecutorService;
 import java.util.stream.Collectors;
 
 import static org.apache.flink.runtime.executiongraph.ExecutionGraphTestUtils.createNoOpVertex;
@@ -64,8 +63,12 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class ExecutionTimeBasedSlowTaskDetectorTest {
 
     @RegisterExtension
-    private static final TestExecutorExtension<ScheduledExecutorService> EXECUTOR_RESOURCE =
-            TestingUtils.defaultExecutorExtension();
+    static final TestingComponentMainThreadExecutor.Extension MAIN_EXECUTOR_RESOURCE =
+            new TestingComponentMainThreadExecutor.Extension();
+
+    private final MainThreadExecutionGraphTestUtils mainThreadUtils =
+            new MainThreadExecutionGraphTestUtils(
+                    MAIN_EXECUTOR_RESOURCE.getComponentMainThreadTestExecutor());
 
     @Test
     void testNoFinishedTaskButRatioIsZero() throws Exception {
@@ -91,8 +94,8 @@ class ExecutionTimeBasedSlowTaskDetectorTest {
         final ExecutionGraph executionGraph =
                 SchedulerTestingUtils.createScheduler(
                                 jobGraph,
-                                ComponentMainThreadExecutorServiceAdapter.forMainThread(),
-                                EXECUTOR_RESOURCE.getExecutor())
+                                mainThreadUtils.getMainThreadExecutor(),
+                                new DirectScheduledExecutorService())
                         .getExecutionGraph();
 
         final ExecutionTimeBasedSlowTaskDetector slowTaskDetector = createSlowTaskDetector(0, 1, 0);
@@ -112,7 +115,7 @@ class ExecutionTimeBasedSlowTaskDetectorTest {
                 createSlowTaskDetector(0.5, 1, 0);
         final ExecutionVertex ev1 =
                 executionGraph.getJobVertex(jobVertex.getID()).getTaskVertices()[0];
-        ev1.getCurrentExecutionAttempt().markFinished();
+        mainThreadUtils.execute(() -> ev1.getCurrentExecutionAttempt().markFinished());
 
         final Map<ExecutionVertexID, Collection<ExecutionAttemptID>> slowTasks =
                 slowTaskDetector.findSlowTasks(executionGraph);
@@ -132,7 +135,7 @@ class ExecutionTimeBasedSlowTaskDetectorTest {
         // ev3 transitions to DEPLOYING later so that its execution time is the shortest
         final ExecutionVertex ev3 =
                 executionGraph.getJobVertex(jobVertex.getID()).getTaskVertices()[2];
-        ev3.getCurrentExecutionAttempt().markFinished();
+        mainThreadUtils.execute(() -> ev3.getCurrentExecutionAttempt().markFinished());
 
         final Map<ExecutionVertexID, Collection<ExecutionAttemptID>> slowTasks =
                 slowTaskDetector.findSlowTasks(executionGraph);
@@ -151,7 +154,7 @@ class ExecutionTimeBasedSlowTaskDetectorTest {
 
         final ExecutionVertex ev3 =
                 executionGraph.getJobVertex(jobVertex.getID()).getTaskVertices()[2];
-        ev3.getCurrentExecutionAttempt().markFinished();
+        mainThreadUtils.execute(() -> ev3.getCurrentExecutionAttempt().markFinished());
 
         final Map<ExecutionVertexID, Collection<ExecutionAttemptID>> slowTasks =
                 slowTaskDetector.findSlowTasks(executionGraph);
@@ -173,7 +176,7 @@ class ExecutionTimeBasedSlowTaskDetectorTest {
 
         final ExecutionVertex ev3 =
                 executionGraph.getJobVertex(jobVertex.getID()).getTaskVertices()[2];
-        ev3.getCurrentExecutionAttempt().markFinished();
+        mainThreadUtils.execute(() -> ev3.getCurrentExecutionAttempt().markFinished());
 
         final Map<ExecutionVertexID, Collection<ExecutionAttemptID>> slowTasks =
                 slowTaskDetector.findSlowTasks(executionGraph);
@@ -199,10 +202,13 @@ class ExecutionTimeBasedSlowTaskDetectorTest {
 
         final ExecutionVertex ev13 =
                 executionGraph.getJobVertex(jobVertex1.getID()).getTaskVertices()[2];
-        ev13.getCurrentExecutionAttempt().markFinished();
         final ExecutionVertex ev23 =
                 executionGraph.getJobVertex(jobVertex2.getID()).getTaskVertices()[2];
-        ev23.getCurrentExecutionAttempt().markFinished();
+        mainThreadUtils.execute(
+                () -> {
+                    ev13.getCurrentExecutionAttempt().markFinished();
+                    ev23.getCurrentExecutionAttempt().markFinished();
+                });
 
         final Map<ExecutionVertexID, Collection<ExecutionAttemptID>> slowTasks =
                 slowTaskDetector.findSlowTasks(executionGraph);
@@ -229,7 +235,7 @@ class ExecutionTimeBasedSlowTaskDetectorTest {
 
         final ExecutionVertex ev13 =
                 executionGraph.getJobVertex(jobVertex1.getID()).getTaskVertices()[2];
-        ev13.getCurrentExecutionAttempt().markFinished();
+        mainThreadUtils.execute(() -> ev13.getCurrentExecutionAttempt().markFinished());
 
         final Map<ExecutionVertexID, Collection<ExecutionAttemptID>> slowTasks =
                 slowTaskDetector.findSlowTasks(executionGraph);
@@ -261,7 +267,7 @@ class ExecutionTimeBasedSlowTaskDetectorTest {
                 executionGraph.getJobVertex(jobVertex2.getID()).getTaskVertices()[2];
         ev23.setInputBytes(1024);
 
-        ev23.getCurrentExecutionAttempt().markFinished();
+        mainThreadUtils.execute(() -> ev23.getCurrentExecutionAttempt().markFinished());
 
         final Map<ExecutionVertexID, Collection<ExecutionAttemptID>> slowTasks =
                 slowTaskDetector.findSlowTasks(executionGraph);
@@ -293,7 +299,7 @@ class ExecutionTimeBasedSlowTaskDetectorTest {
                 executionGraph.getJobVertex(jobVertex2.getID()).getTaskVertices()[2];
         ev23.setInputBytes(1024);
 
-        ev23.getCurrentExecutionAttempt().markFinished();
+        mainThreadUtils.execute(() -> ev23.getCurrentExecutionAttempt().markFinished());
 
         final Map<ExecutionVertexID, Collection<ExecutionAttemptID>> slowTasks =
                 slowTaskDetector.findSlowTasks(executionGraph);
@@ -326,7 +332,7 @@ class ExecutionTimeBasedSlowTaskDetectorTest {
         ev23.setInputBytes(4_096_000);
 
         Thread.sleep(1000);
-        ev21.getCurrentExecutionAttempt().markFinished();
+        mainThreadUtils.execute(() -> ev21.getCurrentExecutionAttempt().markFinished());
 
         final Map<ExecutionVertexID, Collection<ExecutionAttemptID>> slowTasks =
                 slowTaskDetector.findSlowTasks(executionGraph);
@@ -421,7 +427,7 @@ class ExecutionTimeBasedSlowTaskDetectorTest {
                     throw exception;
                 },
                 new ComponentMainThreadExecutorServiceAdapter(
-                        EXECUTOR_RESOURCE.getExecutor(), Thread.currentThread()));
+                        new DirectScheduledExecutorService(), Thread.currentThread()));
 
         slowTaskDetector.getScheduledDetectionFuture().get();
         assertThat(fatalErrorHandler.getException()).isEqualTo(exception);
@@ -433,13 +439,13 @@ class ExecutionTimeBasedSlowTaskDetectorTest {
         final SchedulerBase scheduler =
                 SchedulerTestingUtils.createScheduler(
                         jobGraph,
-                        ComponentMainThreadExecutorServiceAdapter.forMainThread(),
-                        EXECUTOR_RESOURCE.getExecutor());
+                        mainThreadUtils.getMainThreadExecutor(),
+                        new DirectScheduledExecutorService());
 
         final ExecutionGraph executionGraph = scheduler.getExecutionGraph();
 
-        scheduler.startScheduling();
-        ExecutionGraphTestUtils.switchAllVerticesToRunning(executionGraph);
+        mainThreadUtils.execute(scheduler::startScheduling);
+        mainThreadUtils.switchAllVerticesToRunning(executionGraph);
 
         return executionGraph;
     }
@@ -450,14 +456,18 @@ class ExecutionTimeBasedSlowTaskDetectorTest {
         final SchedulerBase scheduler =
                 new DefaultSchedulerBuilder(
                                 jobGraph,
-                                ComponentMainThreadExecutorServiceAdapter.forMainThread(),
-                                EXECUTOR_RESOURCE.getExecutor())
+                                mainThreadUtils.getMainThreadExecutor(),
+                                new DirectScheduledExecutorService())
                         .buildAdaptiveBatchJobScheduler();
 
         final ExecutionGraph executionGraph = scheduler.getExecutionGraph();
 
-        scheduler.startScheduling();
-        ExecutionGraphTestUtils.switchAllVerticesToRunning(executionGraph);
+        // AdaptiveBatchScheduler.startSchedulingInternal() defers vertex initialization
+        // and deployment to an async callback via whenCompleteAsync(). The drain ensures
+        // this callback completes before switchAllVerticesToRunning runs.
+        mainThreadUtils.execute(scheduler::startScheduling);
+        mainThreadUtils.execute(() -> {});
+        mainThreadUtils.switchAllVerticesToRunning(executionGraph);
 
         return executionGraph;
     }

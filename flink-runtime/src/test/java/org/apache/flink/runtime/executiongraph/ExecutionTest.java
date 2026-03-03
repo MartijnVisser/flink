@@ -23,7 +23,6 @@ import org.apache.flink.runtime.blob.PermanentBlobKey;
 import org.apache.flink.runtime.blob.TestingBlobWriter;
 import org.apache.flink.runtime.checkpoint.JobManagerTaskRestore;
 import org.apache.flink.runtime.checkpoint.TaskStateSnapshot;
-import org.apache.flink.runtime.concurrent.ComponentMainThreadExecutorServiceAdapter;
 import org.apache.flink.runtime.execution.ExecutionState;
 import org.apache.flink.runtime.executiongraph.utils.SimpleAckingTaskManagerGateway;
 import org.apache.flink.runtime.jobgraph.JobGraph;
@@ -38,6 +37,7 @@ import org.apache.flink.runtime.scheduler.SchedulerTestingUtils;
 import org.apache.flink.runtime.scheduler.TestingPhysicalSlot;
 import org.apache.flink.runtime.scheduler.TestingPhysicalSlotProvider;
 import org.apache.flink.runtime.testtasks.NoOpInvokable;
+import org.apache.flink.runtime.testutils.DirectScheduledExecutorService;
 import org.apache.flink.testutils.TestingUtils;
 import org.apache.flink.testutils.executor.TestExecutorExtension;
 import org.apache.flink.util.FlinkException;
@@ -58,6 +58,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 /** Tests for the {@link Execution}. */
 class ExecutionTest {
 
+    // Real thread pool, needed only by testExecutionCancelledDuringTaskRestoreOffload which
+    // uses a blocking BlobWriter. DirectScheduledExecutorService would deadlock there because
+    // the blob write blocks the calling thread on a latch.
     @RegisterExtension
     static final TestExecutorExtension<ScheduledExecutorService> EXECUTOR_RESOURCE =
             TestingUtils.defaultExecutorExtension();
@@ -86,26 +89,30 @@ class ExecutionTest {
         final SchedulerBase scheduler =
                 new DefaultSchedulerBuilder(
                                 JobGraphTestUtils.streamingJobGraph(jobVertex),
-                                ComponentMainThreadExecutorServiceAdapter.forMainThread(),
-                                EXECUTOR_RESOURCE.getExecutor())
+                                testMainThreadUtil.getMainThreadExecutor(),
+                                new DirectScheduledExecutorService())
                         .setExecutionSlotAllocatorFactory(
                                 SchedulerTestingUtils.newSlotSharingExecutionSlotAllocatorFactory(
                                         physicalSlotProvider))
                         .build();
 
-        ExecutionJobVertex executionJobVertex = scheduler.getExecutionJobVertex(jobVertexId);
+        ExecutionJobVertex executionJobVertex =
+                testMainThreadUtil.execute(() -> scheduler.getExecutionJobVertex(jobVertexId));
 
-        ExecutionVertex executionVertex = executionJobVertex.getTaskVertices()[0];
+        ExecutionVertex executionVertex =
+                testMainThreadUtil.execute(() -> executionJobVertex.getTaskVertices()[0]);
 
-        scheduler.startScheduling();
+        testMainThreadUtil.execute(scheduler::startScheduling);
 
-        Execution currentExecutionAttempt = executionVertex.getCurrentExecutionAttempt();
+        Execution currentExecutionAttempt =
+                testMainThreadUtil.execute(() -> executionVertex.getCurrentExecutionAttempt());
 
         CompletableFuture<? extends PhysicalSlot> returnedSlotFuture =
                 physicalSlotProvider.getFirstResponseOrFail();
-        CompletableFuture<?> terminationFuture = executionVertex.cancel();
+        CompletableFuture<?> terminationFuture =
+                testMainThreadUtil.execute(() -> executionVertex.cancel());
 
-        currentExecutionAttempt.completeCancelling();
+        testMainThreadUtil.execute(() -> currentExecutionAttempt.completeCancelling());
 
         CompletableFuture<Boolean> restartFuture =
                 terminationFuture.thenApply(
@@ -131,30 +138,35 @@ class ExecutionTest {
                 new DefaultSchedulerBuilder(
                                 JobGraphTestUtils.streamingJobGraph(jobVertex),
                                 testMainThreadUtil.getMainThreadExecutor(),
-                                EXECUTOR_RESOURCE.getExecutor())
+                                new DirectScheduledExecutorService())
                         .setExecutionSlotAllocatorFactory(
                                 SchedulerTestingUtils.newSlotSharingExecutionSlotAllocatorFactory(
                                         TestingPhysicalSlotProvider
                                                 .createWithLimitedAmountOfPhysicalSlots(1)))
                         .build();
 
-        ExecutionJobVertex executionJobVertex = scheduler.getExecutionJobVertex(jobVertexId);
+        ExecutionJobVertex executionJobVertex =
+                testMainThreadUtil.execute(() -> scheduler.getExecutionJobVertex(jobVertexId));
 
-        ExecutionVertex executionVertex = executionJobVertex.getTaskVertices()[0];
+        ExecutionVertex executionVertex =
+                testMainThreadUtil.execute(() -> executionJobVertex.getTaskVertices()[0]);
 
-        final Execution execution = executionVertex.getCurrentExecutionAttempt();
+        final Execution execution =
+                testMainThreadUtil.execute(() -> executionVertex.getCurrentExecutionAttempt());
 
         final JobManagerTaskRestore taskRestoreState =
                 new JobManagerTaskRestore(1L, new TaskStateSnapshot());
-        execution.setInitialState(taskRestoreState);
-
-        assertThat(execution.getTaskRestore()).isNotNull();
+        testMainThreadUtil.execute(
+                () -> {
+                    execution.setInitialState(taskRestoreState);
+                    assertThat(execution.getTaskRestore()).isNotNull();
+                });
 
         // schedule the execution vertex and wait for its deployment
         testMainThreadUtil.execute(scheduler::startScheduling);
 
         // After the execution has been deployed, the task restore state should be nulled.
-        while (execution.getTaskRestore() != null) {
+        while (testMainThreadUtil.execute(() -> execution.getTaskRestore()) != null) {
             // Using busy waiting because there is no `future` that would indicate the completion
             // of the deployment and I want to keep production code clean.
             Thread.sleep(10);
@@ -181,17 +193,20 @@ class ExecutionTest {
                 new DefaultSchedulerBuilder(
                                 JobGraphTestUtils.streamingJobGraph(jobVertex),
                                 testMainThreadUtil.getMainThreadExecutor(),
-                                EXECUTOR_RESOURCE.getExecutor())
+                                new DirectScheduledExecutorService())
                         .setExecutionSlotAllocatorFactory(
                                 SchedulerTestingUtils.newSlotSharingExecutionSlotAllocatorFactory(
                                         physicalSlotProvider))
                         .build();
 
-        ExecutionJobVertex executionJobVertex = scheduler.getExecutionJobVertex(jobVertexId);
+        ExecutionJobVertex executionJobVertex =
+                testMainThreadUtil.execute(() -> scheduler.getExecutionJobVertex(jobVertexId));
 
-        ExecutionVertex executionVertex = executionJobVertex.getTaskVertices()[0];
+        ExecutionVertex executionVertex =
+                testMainThreadUtil.execute(() -> executionJobVertex.getTaskVertices()[0]);
 
-        final Execution execution = executionVertex.getCurrentExecutionAttempt();
+        final Execution execution =
+                testMainThreadUtil.execute(() -> executionVertex.getCurrentExecutionAttempt());
 
         taskManagerGateway.setCancelConsumer(
                 executionAttemptID -> {
@@ -220,17 +235,19 @@ class ExecutionTest {
                 new DefaultSchedulerBuilder(
                                 JobGraphTestUtils.streamingJobGraph(jobVertex),
                                 testMainThreadUtil.getMainThreadExecutor(),
-                                EXECUTOR_RESOURCE.getExecutor())
+                                new DirectScheduledExecutorService())
                         .setExecutionSlotAllocatorFactory(
                                 SchedulerTestingUtils.newSlotSharingExecutionSlotAllocatorFactory(
                                         physicalSlotProvider))
                         .build();
 
         final Execution execution =
-                scheduler
-                        .getExecutionJobVertex(jobVertex.getID())
-                        .getTaskVertices()[0]
-                        .getCurrentExecutionAttempt();
+                testMainThreadUtil.execute(
+                        () ->
+                                scheduler
+                                        .getExecutionJobVertex(jobVertex.getID())
+                                        .getTaskVertices()[0]
+                                        .getCurrentExecutionAttempt());
 
         testMainThreadUtil.execute(scheduler::startScheduling);
 

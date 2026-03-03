@@ -19,7 +19,6 @@
 package org.apache.flink.runtime.executiongraph;
 
 import org.apache.flink.configuration.Configuration;
-import org.apache.flink.runtime.concurrent.ComponentMainThreadExecutorServiceAdapter;
 import org.apache.flink.runtime.io.network.partition.ResultPartitionType;
 import org.apache.flink.runtime.jobgraph.DistributionPattern;
 import org.apache.flink.runtime.jobgraph.IntermediateDataSet;
@@ -37,8 +36,6 @@ import org.apache.flink.runtime.scheduler.adaptivebatch.AdaptiveBatchScheduler;
 import org.apache.flink.runtime.scheduler.strategy.ConsumedPartitionGroup;
 import org.apache.flink.runtime.testtasks.NoOpInvokable;
 import org.apache.flink.runtime.testutils.DirectScheduledExecutorService;
-import org.apache.flink.testutils.TestingUtils;
-import org.apache.flink.testutils.executor.TestExecutorExtension;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.RegisterExtension;
@@ -57,8 +54,12 @@ import static org.assertj.core.api.Assertions.assertThat;
 /** Tests for {@link IntermediateResultPartition}. */
 public class IntermediateResultPartitionTest {
     @RegisterExtension
-    static final TestExecutorExtension<ScheduledExecutorService> EXECUTOR_RESOURCE =
-            TestingUtils.defaultExecutorExtension();
+    static final TestingComponentMainThreadExecutor.Extension MAIN_EXECUTOR_RESOURCE =
+            new TestingComponentMainThreadExecutor.Extension();
+
+    private final MainThreadExecutionGraphTestUtils mainThreadUtils =
+            new MainThreadExecutionGraphTestUtils(
+                    MAIN_EXECUTOR_RESOURCE.getComponentMainThreadTestExecutor());
 
     @Test
     void testPartitionDataAllProduced() throws Exception {
@@ -199,14 +200,17 @@ public class IntermediateResultPartitionTest {
         SchedulerBase scheduler =
                 new DefaultSchedulerBuilder(
                                 jobGraph,
-                                ComponentMainThreadExecutorServiceAdapter.forMainThread(),
+                                mainThreadUtils.getMainThreadExecutor(),
                                 new DirectScheduledExecutorService())
                         .buildAdaptiveBatchJobScheduler();
 
         ExecutionJobVertex sourceVertex = scheduler.getExecutionJobVertex(source.getID());
         ExecutionJobVertex sinkVertex1 = scheduler.getExecutionJobVertex(sink1.getID());
-        scheduler.getExecutionGraph().initializeJobVertex(sourceVertex, 1L);
-        scheduler.getExecutionGraph().initializeJobVertex(sinkVertex1, 1L);
+        mainThreadUtils.execute(
+                () -> {
+                    scheduler.getExecutionGraph().initializeJobVertex(sourceVertex, 1L);
+                    scheduler.getExecutionGraph().initializeJobVertex(sinkVertex1, 1L);
+                });
 
         // mark partition can be released
         IntermediateResultPartition partition =
@@ -230,15 +234,19 @@ public class IntermediateResultPartitionTest {
                         1,
                         false,
                         false));
-        scheduler
-                .getExecutionGraph()
-                .addNewJobVertices(
-                        Collections.singletonList(sink2),
-                        UnregisteredMetricGroups.createUnregisteredJobManagerJobMetricGroup(),
-                        computeVertexParallelismStoreForDynamicGraph(
-                                Collections.singletonList(sink2), 1));
-        ExecutionJobVertex sinkVertex2 = scheduler.getExecutionJobVertex(sink2.getID());
-        scheduler.getExecutionGraph().initializeJobVertex(sinkVertex2, 1L);
+        mainThreadUtils.execute(
+                () -> {
+                    scheduler
+                            .getExecutionGraph()
+                            .addNewJobVertices(
+                                    Collections.singletonList(sink2),
+                                    UnregisteredMetricGroups
+                                            .createUnregisteredJobManagerJobMetricGroup(),
+                                    computeVertexParallelismStoreForDynamicGraph(
+                                            Collections.singletonList(sink2), 1));
+                    ExecutionJobVertex sinkVertex2 = scheduler.getExecutionJobVertex(sink2.getID());
+                    scheduler.getExecutionGraph().initializeJobVertex(sinkVertex2, 1L);
+                });
 
         assertThat(partition.canBeReleased()).isTrue();
     }
@@ -295,7 +303,7 @@ public class IntermediateResultPartitionTest {
                         consumerMaxParallelism,
                         distributionPattern,
                         isDynamicGraph,
-                        EXECUTOR_RESOURCE.getExecutor());
+                        new DirectScheduledExecutorService());
 
         final Iterator<ExecutionJobVertex> vertexIterator =
                 eg.getVerticesTopologically().iterator();
@@ -385,7 +393,7 @@ public class IntermediateResultPartitionTest {
         }
     }
 
-    private static IntermediateResult createResult(
+    private IntermediateResult createResult(
             ResultPartitionType resultPartitionType, int parallelism) throws Exception {
 
         JobVertex source = new JobVertex("v1");
@@ -422,9 +430,7 @@ public class IntermediateResultPartitionTest {
 
         SchedulerBase scheduler =
                 new DefaultSchedulerBuilder(
-                                jobGraph,
-                                ComponentMainThreadExecutorServiceAdapter.forMainThread(),
-                                executorService)
+                                jobGraph, mainThreadUtils.getMainThreadExecutor(), executorService)
                         .build();
 
         ExecutionJobVertex ejv = scheduler.getExecutionJobVertex(source.getID());

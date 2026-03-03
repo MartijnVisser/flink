@@ -26,14 +26,15 @@ import org.apache.flink.runtime.blob.BlobWriter;
 import org.apache.flink.runtime.blob.TestingBlobWriter;
 import org.apache.flink.runtime.client.JobExecutionException;
 import org.apache.flink.runtime.clusterframework.types.AllocationID;
-import org.apache.flink.runtime.concurrent.ComponentMainThreadExecutorServiceAdapter;
 import org.apache.flink.runtime.deployment.TaskDeploymentDescriptor.MaybeOffloaded;
 import org.apache.flink.runtime.deployment.TaskDeploymentDescriptorFactory.ShuffleDescriptorGroup;
 import org.apache.flink.runtime.executiongraph.ExecutionGraph;
 import org.apache.flink.runtime.executiongraph.ExecutionJobVertex;
 import org.apache.flink.runtime.executiongraph.ExecutionVertex;
 import org.apache.flink.runtime.executiongraph.IntermediateResult;
+import org.apache.flink.runtime.executiongraph.MainThreadExecutionGraphTestUtils;
 import org.apache.flink.runtime.executiongraph.MarkPartitionFinishedStrategy;
+import org.apache.flink.runtime.executiongraph.TestingComponentMainThreadExecutor;
 import org.apache.flink.runtime.executiongraph.TestingDefaultExecutionGraphBuilder;
 import org.apache.flink.runtime.io.network.partition.ResultPartitionType;
 import org.apache.flink.runtime.jobgraph.DistributionPattern;
@@ -47,8 +48,7 @@ import org.apache.flink.runtime.scheduler.ClusterDatasetCorruptedException;
 import org.apache.flink.runtime.scheduler.DefaultSchedulerBuilder;
 import org.apache.flink.runtime.scheduler.SchedulerBase;
 import org.apache.flink.runtime.shuffle.ShuffleDescriptor;
-import org.apache.flink.testutils.TestingUtils;
-import org.apache.flink.testutils.executor.TestExecutorExtension;
+import org.apache.flink.runtime.testutils.DirectScheduledExecutorService;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.RegisterExtension;
@@ -58,7 +58,6 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
-import java.util.concurrent.ScheduledExecutorService;
 
 import static org.apache.flink.configuration.JobManagerOptions.HybridPartitionDataConsumeConstraint.ONLY_FINISHED_PRODUCERS;
 import static org.apache.flink.runtime.deployment.TaskDeploymentDescriptorTestUtils.deserializeShuffleDescriptors;
@@ -68,9 +67,14 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /** Tests for {@link TaskDeploymentDescriptorFactory}. */
 class TaskDeploymentDescriptorFactoryTest {
+
     @RegisterExtension
-    private static final TestExecutorExtension<ScheduledExecutorService> EXECUTOR_RESOURCE =
-            TestingUtils.defaultExecutorExtension();
+    static final TestingComponentMainThreadExecutor.Extension MAIN_EXECUTOR_RESOURCE =
+            new TestingComponentMainThreadExecutor.Extension();
+
+    private final MainThreadExecutionGraphTestUtils mainThreadUtils =
+            new MainThreadExecutionGraphTestUtils(
+                    MAIN_EXECUTOR_RESOURCE.getComponentMainThreadTestExecutor());
 
     private static final int PARALLELISM = 4;
 
@@ -130,15 +134,18 @@ class TaskDeploymentDescriptorFactoryTest {
         final ExecutionJobVertex ejv2 = executionJobVertices.f1;
 
         final ExecutionVertex ev21 = ejv2.getTaskVertices()[0];
-        createTaskDeploymentDescriptor(ev21);
+        mainThreadUtils.execute(() -> createTaskDeploymentDescriptor(ev21));
 
         final ExecutionVertex ev11 = ejv1.getTaskVertices()[0];
         final ExecutionVertex ev12 = ejv1.getTaskVertices()[1];
-        ev11.finishPartitionsIfNeeded();
-        ev12.finishPartitionsIfNeeded();
+        mainThreadUtils.execute(
+                () -> {
+                    ev11.finishPartitionsIfNeeded();
+                    ev12.finishPartitionsIfNeeded();
+                });
 
         final ExecutionVertex ev22 = ejv2.getTaskVertices()[1];
-        createTaskDeploymentDescriptor(ev22);
+        mainThreadUtils.execute(() -> createTaskDeploymentDescriptor(ev22));
         IntermediateResult consumedResult = ejv2.getInputs().get(0);
         List<MaybeOffloaded<ShuffleDescriptorGroup>> serializedShuffleDescriptors =
                 consumedResult
@@ -147,9 +154,9 @@ class TaskDeploymentDescriptorFactoryTest {
         assertThat(serializedShuffleDescriptors).hasSize(2);
 
         final ExecutionVertex ev13 = ejv1.getTaskVertices()[2];
-        ev13.finishPartitionsIfNeeded();
+        mainThreadUtils.execute(() -> ev13.finishPartitionsIfNeeded());
         final ExecutionVertex ev23 = ejv2.getTaskVertices()[2];
-        createTaskDeploymentDescriptor(ev23);
+        mainThreadUtils.execute(() -> createTaskDeploymentDescriptor(ev23));
         consumedResult = ejv2.getInputs().get(0);
         serializedShuffleDescriptors =
                 consumedResult
@@ -224,15 +231,21 @@ class TaskDeploymentDescriptorFactoryTest {
         SchedulerBase scheduler =
                 new DefaultSchedulerBuilder(
                                 jobGraph,
-                                ComponentMainThreadExecutorServiceAdapter.forMainThread(),
-                                EXECUTOR_RESOURCE.getExecutor())
+                                mainThreadUtils.getMainThreadExecutor(),
+                                new DirectScheduledExecutorService())
                         .setHybridPartitionDataConsumeConstraint(ONLY_FINISHED_PRODUCERS)
                         .buildAdaptiveBatchJobScheduler();
-        scheduler.startScheduling();
-        ExecutionGraph executionGraph = scheduler.getExecutionGraph();
-        return Tuple2.of(
-                executionGraph.getJobVertex(producer.getID()),
-                executionGraph.getJobVertex(consumer.getID()));
+        // AdaptiveBatchScheduler.startSchedulingInternal() defers vertex initialization
+        // to an async callback via whenCompleteAsync(). The second execute() block runs
+        // after the callback (FIFO ordering), ensuring vertices are initialized.
+        mainThreadUtils.execute(scheduler::startScheduling);
+        return mainThreadUtils.execute(
+                () -> {
+                    ExecutionGraph executionGraph = scheduler.getExecutionGraph();
+                    return Tuple2.of(
+                            executionGraph.getJobVertex(producer.getID()),
+                            executionGraph.getJobVertex(consumer.getID()));
+                });
     }
 
     // ============== Utils ==============
@@ -263,7 +276,7 @@ class TaskDeploymentDescriptorFactoryTest {
                 .setJobGraph(jobGraph)
                 .setBlobWriter(blobWriter)
                 .setMarkPartitionFinishedStrategy(markPartitionFinishedStrategy)
-                .build(EXECUTOR_RESOURCE.getExecutor());
+                .build(new DirectScheduledExecutorService());
     }
 
     private static TaskDeploymentDescriptor createTaskDeploymentDescriptor(ExecutionVertex ev)

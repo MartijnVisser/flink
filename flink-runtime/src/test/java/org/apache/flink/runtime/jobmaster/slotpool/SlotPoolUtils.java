@@ -57,6 +57,11 @@ public class SlotPoolUtils {
         return new DeclarativeSlotPoolBridgeBuilder().build();
     }
 
+    public static DeclarativeSlotPoolBridge createDeclarativeSlotPoolBridge(
+            ComponentMainThreadExecutor executor) {
+        return new DeclarativeSlotPoolBridgeBuilder().setMainThreadExecutor(executor).build();
+    }
+
     public static CompletableFuture<PhysicalSlot> requestNewAllocatedBatchSlot(
             SlotPool slotPool,
             ComponentMainThreadExecutor mainThreadExecutor,

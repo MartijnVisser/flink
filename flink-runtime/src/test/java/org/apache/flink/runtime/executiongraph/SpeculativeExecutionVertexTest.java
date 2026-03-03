@@ -22,14 +22,12 @@ import org.apache.flink.api.common.JobStatus;
 import org.apache.flink.api.common.io.GenericInputFormat;
 import org.apache.flink.core.io.GenericInputSplit;
 import org.apache.flink.core.io.InputSplit;
-import org.apache.flink.runtime.concurrent.ComponentMainThreadExecutorServiceAdapter;
 import org.apache.flink.runtime.execution.ExecutionState;
 import org.apache.flink.runtime.jobgraph.JobGraph;
 import org.apache.flink.runtime.jobgraph.JobGraphTestUtils;
 import org.apache.flink.runtime.jobgraph.JobVertex;
 import org.apache.flink.runtime.scheduler.TestingInternalFailuresListener;
-import org.apache.flink.testutils.TestingUtils;
-import org.apache.flink.testutils.executor.TestExecutorExtension;
+import org.apache.flink.runtime.testutils.DirectScheduledExecutorService;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
@@ -44,7 +42,6 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Random;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ScheduledExecutorService;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -52,8 +49,12 @@ import static org.assertj.core.api.Assertions.assertThat;
 class SpeculativeExecutionVertexTest {
 
     @RegisterExtension
-    private static final TestExecutorExtension<ScheduledExecutorService> EXECUTOR_RESOURCE =
-            TestingUtils.defaultExecutorExtension();
+    static final TestingComponentMainThreadExecutor.Extension MAIN_EXECUTOR_RESOURCE =
+            new TestingComponentMainThreadExecutor.Extension();
+
+    private final MainThreadExecutionGraphTestUtils mainThreadUtils =
+            new MainThreadExecutionGraphTestUtils(
+                    MAIN_EXECUTOR_RESOURCE.getComponentMainThreadTestExecutor());
 
     private TestingInternalFailuresListener internalFailuresListener;
 
@@ -67,7 +68,10 @@ class SpeculativeExecutionVertexTest {
         final SpeculativeExecutionVertex ev = createSpeculativeExecutionVertex();
         assertThat(ev.getCurrentExecutions()).hasSize(1);
 
-        ev.createNewSpeculativeExecution(System.currentTimeMillis());
+        mainThreadUtils.execute(
+                () -> {
+                    ev.createNewSpeculativeExecution(System.currentTimeMillis());
+                });
         assertThat(ev.getCurrentExecutions()).hasSize(2);
     }
 
@@ -75,12 +79,19 @@ class SpeculativeExecutionVertexTest {
     void testResetExecutionVertex() throws Exception {
         final SpeculativeExecutionVertex ev = createSpeculativeExecutionVertex();
         final Execution e1 = ev.getCurrentExecutionAttempt();
-        final Execution e2 = ev.createNewSpeculativeExecution(System.currentTimeMillis());
+        final Execution e2 =
+                mainThreadUtils.execute(
+                        () -> {
+                            return ev.createNewSpeculativeExecution(System.currentTimeMillis());
+                        });
 
-        e1.transitionState(ExecutionState.RUNNING);
-        e1.markFinished();
-        e2.cancel();
-        ev.resetForNewExecution();
+        mainThreadUtils.execute(
+                () -> {
+                    e1.transitionState(ExecutionState.RUNNING);
+                    e1.markFinished();
+                    e2.cancel();
+                    ev.resetForNewExecution();
+                });
 
         assertThat(ev.getExecutionHistory().getHistoricalExecution(0).get().getAttemptId())
                 .isEqualTo(e1.getAttemptId());
@@ -94,9 +105,16 @@ class SpeculativeExecutionVertexTest {
     void testCancel() throws Exception {
         final SpeculativeExecutionVertex ev = createSpeculativeExecutionVertex();
         final Execution e1 = ev.getCurrentExecutionAttempt();
-        final Execution e2 = ev.createNewSpeculativeExecution(System.currentTimeMillis());
+        final Execution e2 =
+                mainThreadUtils.execute(
+                        () -> {
+                            return ev.createNewSpeculativeExecution(System.currentTimeMillis());
+                        });
 
-        ev.cancel();
+        mainThreadUtils.execute(
+                () -> {
+                    ev.cancel();
+                });
         assertThat(e1.getState()).isSameAs(ExecutionState.CANCELED);
         assertThat(e2.getState()).isSameAs(ExecutionState.CANCELED);
     }
@@ -105,9 +123,16 @@ class SpeculativeExecutionVertexTest {
     void testSuspend() throws Exception {
         final SpeculativeExecutionVertex ev = createSpeculativeExecutionVertex();
         final Execution e1 = ev.getCurrentExecutionAttempt();
-        final Execution e2 = ev.createNewSpeculativeExecution(System.currentTimeMillis());
+        final Execution e2 =
+                mainThreadUtils.execute(
+                        () -> {
+                            return ev.createNewSpeculativeExecution(System.currentTimeMillis());
+                        });
 
-        ev.suspend();
+        mainThreadUtils.execute(
+                () -> {
+                    ev.suspend();
+                });
         assertThat(e1.getState()).isSameAs(ExecutionState.CANCELED);
         assertThat(e2.getState()).isSameAs(ExecutionState.CANCELED);
     }
@@ -116,9 +141,13 @@ class SpeculativeExecutionVertexTest {
     void testFail() throws Exception {
         final SpeculativeExecutionVertex ev = createSpeculativeExecutionVertex();
         final Execution e1 = ev.getCurrentExecutionAttempt();
-        final Execution e2 = ev.createNewSpeculativeExecution(System.currentTimeMillis());
+        final Execution e2 =
+                mainThreadUtils.execute(
+                        () -> {
+                            return ev.createNewSpeculativeExecution(System.currentTimeMillis());
+                        });
 
-        ev.fail(new Exception("Forced test failure."));
+        mainThreadUtils.execute(() -> ev.fail(new Exception("Forced test failure.")));
         assertThat(internalFailuresListener.getFailedTasks())
                 .containsExactly(e1.getAttemptId(), e2.getAttemptId());
     }
@@ -127,9 +156,13 @@ class SpeculativeExecutionVertexTest {
     void testMarkFailed() throws Exception {
         final SpeculativeExecutionVertex ev = createSpeculativeExecutionVertex();
         final Execution e1 = ev.getCurrentExecutionAttempt();
-        final Execution e2 = ev.createNewSpeculativeExecution(System.currentTimeMillis());
+        final Execution e2 =
+                mainThreadUtils.execute(
+                        () -> {
+                            return ev.createNewSpeculativeExecution(System.currentTimeMillis());
+                        });
 
-        ev.markFailed(new Exception("Forced test failure."));
+        mainThreadUtils.execute(() -> ev.markFailed(new Exception("Forced test failure.")));
         assertThat(internalFailuresListener.getFailedTasks())
                 .containsExactly(e1.getAttemptId(), e2.getAttemptId());
     }
@@ -139,75 +172,87 @@ class SpeculativeExecutionVertexTest {
         final JobVertex jobVertex = ExecutionGraphTestUtils.createNoOpVertex(1);
         final JobGraph jobGraph = JobGraphTestUtils.batchJobGraph(jobVertex);
         final ExecutionGraph eg = createExecutionGraph(jobGraph);
-        eg.transitionToRunning();
 
-        final SpeculativeExecutionVertex ev =
-                (SpeculativeExecutionVertex)
-                        eg.getJobVertex(jobVertex.getID()).getTaskVertices()[0];
-        final Execution e1 = ev.getCurrentExecutionAttempt();
-        final Execution e2 = ev.createNewSpeculativeExecution(System.currentTimeMillis());
-        final CompletableFuture<?> terminationFuture = ev.getTerminationFuture();
+        mainThreadUtils.execute(
+                () -> {
+                    eg.transitionToRunning();
 
-        e1.transitionState(ExecutionState.RUNNING);
-        e1.markFinished();
-        assertThat(terminationFuture).isNotDone();
-        assertThat(eg.getState()).isSameAs(JobStatus.RUNNING);
+                    final SpeculativeExecutionVertex ev =
+                            (SpeculativeExecutionVertex)
+                                    eg.getJobVertex(jobVertex.getID()).getTaskVertices()[0];
+                    final Execution e1 = ev.getCurrentExecutionAttempt();
+                    final Execution e2 =
+                            ev.createNewSpeculativeExecution(System.currentTimeMillis());
+                    final CompletableFuture<?> terminationFuture = ev.getTerminationFuture();
 
-        e2.cancel();
-        assertThat(terminationFuture).isDone();
-        assertThat(eg.getState()).isSameAs(JobStatus.FINISHED);
+                    e1.transitionState(ExecutionState.RUNNING);
+                    e1.markFinished();
+                    assertThat(terminationFuture).isNotDone();
+                    assertThat(eg.getState()).isSameAs(JobStatus.RUNNING);
+
+                    e2.cancel();
+                    assertThat(terminationFuture).isDone();
+                    assertThat(eg.getState()).isSameAs(JobStatus.FINISHED);
+                });
     }
 
     @Test
     void testArchiveFailedExecutions() throws Exception {
         final SpeculativeExecutionVertex ev = createSpeculativeExecutionVertex();
 
-        final Execution e1 = ev.getCurrentExecutionAttempt();
-        e1.transitionState(ExecutionState.RUNNING);
+        mainThreadUtils.execute(
+                () -> {
+                    final Execution e1 = ev.getCurrentExecutionAttempt();
+                    e1.transitionState(ExecutionState.RUNNING);
 
-        final Execution e2 = ev.createNewSpeculativeExecution(0);
-        e2.transitionState(ExecutionState.FAILED);
+                    final Execution e2 = ev.createNewSpeculativeExecution(0);
+                    e2.transitionState(ExecutionState.FAILED);
 
-        ev.archiveFailedExecution(e2.getAttemptId());
-        assertThat(ev.getCurrentExecutions()).hasSize(1);
-        assertThat(ev.currentExecution).isSameAs(e1);
+                    ev.archiveFailedExecution(e2.getAttemptId());
+                    assertThat(ev.getCurrentExecutions()).hasSize(1);
+                    assertThat(ev.currentExecution).isSameAs(e1);
 
-        final Execution e3 = ev.createNewSpeculativeExecution(0);
-        e3.transitionState(ExecutionState.RUNNING);
-        e1.transitionState(ExecutionState.FAILED);
+                    final Execution e3 = ev.createNewSpeculativeExecution(0);
+                    e3.transitionState(ExecutionState.RUNNING);
+                    e1.transitionState(ExecutionState.FAILED);
 
-        ev.archiveFailedExecution(e1.getAttemptId());
-        assertThat(ev.getCurrentExecutions()).hasSize(1);
-        assertThat(ev.currentExecution).isSameAs(e3);
+                    ev.archiveFailedExecution(e1.getAttemptId());
+                    assertThat(ev.getCurrentExecutions()).hasSize(1);
+                    assertThat(ev.currentExecution).isSameAs(e3);
+                });
     }
 
     @Test
     void testArchiveTheOnlyCurrentExecution() throws Exception {
         final SpeculativeExecutionVertex ev = createSpeculativeExecutionVertex();
 
-        final Execution e1 = ev.getCurrentExecutionAttempt();
-        e1.transitionState(ExecutionState.FAILED);
+        mainThreadUtils.execute(
+                () -> {
+                    final Execution e1 = ev.getCurrentExecutionAttempt();
+                    e1.transitionState(ExecutionState.FAILED);
 
-        ev.archiveFailedExecution(e1.getAttemptId());
+                    ev.archiveFailedExecution(e1.getAttemptId());
 
-        assertThat(ev.getCurrentExecutions()).hasSize(1);
-        assertThat(ev.currentExecution).isSameAs(e1);
+                    assertThat(ev.getCurrentExecutions()).hasSize(1);
+                    assertThat(ev.currentExecution).isSameAs(e1);
+                });
     }
 
     @Test
-    void testArchiveNonFailedExecutionWithArchiveFailedExecutionMethod() {
-        Assertions.assertThrows(
-                IllegalStateException.class,
-                () -> {
-                    final SpeculativeExecutionVertex ev = createSpeculativeExecutionVertex();
+    void testArchiveNonFailedExecutionWithArchiveFailedExecutionMethod() throws Exception {
+        final SpeculativeExecutionVertex ev = createSpeculativeExecutionVertex();
 
+        mainThreadUtils.execute(
+                () -> {
                     final Execution e1 = ev.getCurrentExecutionAttempt();
                     e1.transitionState(ExecutionState.FAILED);
 
                     final Execution e2 = ev.createNewSpeculativeExecution(0);
                     e2.transitionState(ExecutionState.RUNNING);
 
-                    ev.archiveFailedExecution(e2.getAttemptId());
+                    Assertions.assertThrows(
+                            IllegalStateException.class,
+                            () -> ev.archiveFailedExecution(e2.getAttemptId()));
                 });
     }
 
@@ -215,26 +260,29 @@ class SpeculativeExecutionVertexTest {
     void testGetExecutionState() throws Exception {
         final SpeculativeExecutionVertex ev = createSpeculativeExecutionVertex();
 
-        final Execution e1 = ev.getCurrentExecutionAttempt();
-        e1.transitionState(ExecutionState.CANCELED);
-        assertThat(ev.getExecutionState()).isSameAs(ExecutionState.CANCELED);
+        mainThreadUtils.execute(
+                () -> {
+                    final Execution e1 = ev.getCurrentExecutionAttempt();
+                    e1.transitionState(ExecutionState.CANCELED);
+                    assertThat(ev.getExecutionState()).isSameAs(ExecutionState.CANCELED);
 
-        // the latter added state is more likely to reach FINISH state
-        final List<ExecutionState> statesSortedByPriority = new ArrayList<>();
-        statesSortedByPriority.add(ExecutionState.FAILED);
-        statesSortedByPriority.add(ExecutionState.CANCELING);
-        statesSortedByPriority.add(ExecutionState.CREATED);
-        statesSortedByPriority.add(ExecutionState.SCHEDULED);
-        statesSortedByPriority.add(ExecutionState.DEPLOYING);
-        statesSortedByPriority.add(ExecutionState.INITIALIZING);
-        statesSortedByPriority.add(ExecutionState.RUNNING);
-        statesSortedByPriority.add(ExecutionState.FINISHED);
+                    // the latter added state is more likely to reach FINISH state
+                    final List<ExecutionState> statesSortedByPriority = new ArrayList<>();
+                    statesSortedByPriority.add(ExecutionState.FAILED);
+                    statesSortedByPriority.add(ExecutionState.CANCELING);
+                    statesSortedByPriority.add(ExecutionState.CREATED);
+                    statesSortedByPriority.add(ExecutionState.SCHEDULED);
+                    statesSortedByPriority.add(ExecutionState.DEPLOYING);
+                    statesSortedByPriority.add(ExecutionState.INITIALIZING);
+                    statesSortedByPriority.add(ExecutionState.RUNNING);
+                    statesSortedByPriority.add(ExecutionState.FINISHED);
 
-        for (ExecutionState state : statesSortedByPriority) {
-            final Execution execution = ev.createNewSpeculativeExecution(0);
-            execution.transitionState(state);
-            assertThat(ev.getExecutionState()).isSameAs(state);
-        }
+                    for (ExecutionState state : statesSortedByPriority) {
+                        final Execution execution = ev.createNewSpeculativeExecution(0);
+                        execution.transitionState(state);
+                        assertThat(ev.getExecutionState()).isSameAs(state);
+                    }
+                });
     }
 
     @Test
@@ -245,31 +293,35 @@ class SpeculativeExecutionVertexTest {
 
         final SpeculativeExecutionVertex ev = createSpeculativeExecutionVertex(jobVertex);
 
-        final int numExecutions = 3;
-        for (int i = 0; i < numExecutions - 1; ++i) {
-            ev.createNewSpeculativeExecution(0);
-        }
-        final List<Execution> executions = new ArrayList<>(ev.getCurrentExecutions());
+        mainThreadUtils.execute(
+                () -> {
+                    final int numExecutions = 3;
+                    for (int i = 0; i < numExecutions - 1; ++i) {
+                        ev.createNewSpeculativeExecution(0);
+                    }
+                    final List<Execution> executions = new ArrayList<>(ev.getCurrentExecutions());
 
-        final Map<Integer, List<InputSplit>> splitsOfAttempts = new HashMap<>();
-        final Random rand = new Random();
-        while (executions.size() > 0) {
-            final int index = rand.nextInt(executions.size());
-            final Execution execution = executions.get(index);
-            final Optional<InputSplit> split = execution.getNextInputSplit();
-            if (split.isPresent()) {
-                splitsOfAttempts
-                        .computeIfAbsent(execution.getAttemptNumber(), k -> new ArrayList<>())
-                        .add(split.get());
-            } else {
-                executions.remove(index);
-            }
-        }
+                    final Map<Integer, List<InputSplit>> splitsOfAttempts = new HashMap<>();
+                    final Random rand = new Random();
+                    while (executions.size() > 0) {
+                        final int index = rand.nextInt(executions.size());
+                        final Execution execution = executions.get(index);
+                        final Optional<InputSplit> split = execution.getNextInputSplit();
+                        if (split.isPresent()) {
+                            splitsOfAttempts
+                                    .computeIfAbsent(
+                                            execution.getAttemptNumber(), k -> new ArrayList<>())
+                                    .add(split.get());
+                        } else {
+                            executions.remove(index);
+                        }
+                    }
 
-        assertThat(splitsOfAttempts).hasSize(numExecutions);
-        assertThat(splitsOfAttempts.get(0)).containsExactlyInAnyOrder(source.splits);
-        assertThat(splitsOfAttempts.get(1)).isEqualTo(splitsOfAttempts.get(0));
-        assertThat(splitsOfAttempts.get(2)).isEqualTo(splitsOfAttempts.get(0));
+                    assertThat(splitsOfAttempts).hasSize(numExecutions);
+                    assertThat(splitsOfAttempts.get(0)).containsExactlyInAnyOrder(source.splits);
+                    assertThat(splitsOfAttempts.get(1)).isEqualTo(splitsOfAttempts.get(0));
+                    assertThat(splitsOfAttempts.get(2)).isEqualTo(splitsOfAttempts.get(0));
+                });
     }
 
     private SpeculativeExecutionVertex createSpeculativeExecutionVertex() throws Exception {
@@ -289,10 +341,10 @@ class SpeculativeExecutionVertexTest {
                 TestingDefaultExecutionGraphBuilder.newBuilder()
                         .setJobGraph(jobGraph)
                         .setExecutionJobVertexFactory(new SpeculativeExecutionJobVertex.Factory())
-                        .build(EXECUTOR_RESOURCE.getExecutor());
+                        .build(new DirectScheduledExecutorService());
 
         executionGraph.setInternalTaskFailuresListener(internalFailuresListener);
-        executionGraph.start(ComponentMainThreadExecutorServiceAdapter.forMainThread());
+        executionGraph.start(mainThreadUtils.getMainThreadExecutor());
 
         return executionGraph;
     }

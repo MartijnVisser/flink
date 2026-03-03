@@ -29,7 +29,6 @@ import org.apache.flink.runtime.blob.BlobWriter;
 import org.apache.flink.runtime.blob.PermanentBlobService;
 import org.apache.flink.runtime.blob.VoidBlobWriter;
 import org.apache.flink.runtime.checkpoint.CheckpointRetentionPolicy;
-import org.apache.flink.runtime.concurrent.ComponentMainThreadExecutorServiceAdapter;
 import org.apache.flink.runtime.deployment.InputGateDeploymentDescriptor;
 import org.apache.flink.runtime.deployment.ResultPartitionDeploymentDescriptor;
 import org.apache.flink.runtime.deployment.TaskDeploymentDescriptor;
@@ -66,8 +65,6 @@ import org.apache.flink.runtime.taskmanager.TaskManagerLocation;
 import org.apache.flink.runtime.testtasks.NoOpInvokable;
 import org.apache.flink.runtime.testutils.DirectScheduledExecutorService;
 import org.apache.flink.runtime.util.NoOpGroupCache;
-import org.apache.flink.testutils.TestingUtils;
-import org.apache.flink.testutils.executor.TestExecutorExtension;
 import org.apache.flink.util.function.FunctionUtils;
 
 import org.junit.jupiter.api.Test;
@@ -83,7 +80,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ScheduledExecutorService;
 
 import static org.apache.flink.runtime.util.JobVertexConnectionUtils.connectNewDataSetAsInput;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -92,8 +88,12 @@ import static org.assertj.core.api.Assertions.assertThat;
 class DefaultExecutionGraphDeploymentTest {
 
     @RegisterExtension
-    static final TestExecutorExtension<ScheduledExecutorService> EXECUTOR_EXTENSION =
-            TestingUtils.defaultExecutorExtension();
+    static final TestingComponentMainThreadExecutor.Extension MAIN_EXECUTOR_RESOURCE =
+            new TestingComponentMainThreadExecutor.Extension();
+
+    protected final MainThreadExecutionGraphTestUtils mainThreadUtils =
+            new MainThreadExecutionGraphTestUtils(
+                    MAIN_EXECUTOR_RESOURCE.getComponentMainThreadTestExecutor());
 
     /** BLOB server instance to use for the job graph. */
     protected BlobWriter blobWriter = VoidBlobWriter.getInstance();
@@ -166,12 +166,12 @@ class DefaultExecutionGraphDeploymentTest {
                         .setBlobWriter(blobWriter)
                         .build(executor);
 
-        eg.start(ComponentMainThreadExecutorServiceAdapter.forMainThread());
+        eg.start(mainThreadUtils.getMainThreadExecutor());
 
         checkJobOffloaded(eg);
 
-        ExecutionJobVertex ejv = eg.getAllVertices().get(jid2);
-        ExecutionVertex vertex = ejv.getTaskVertices()[3];
+        ExecutionJobVertex ejv = mainThreadUtils.execute(() -> eg.getAllVertices().get(jid2));
+        ExecutionVertex vertex = mainThreadUtils.execute(() -> ejv.getTaskVertices()[3]);
 
         final SimpleAckingTaskManagerGateway taskManagerGateway =
                 new SimpleAckingTaskManagerGateway();
@@ -193,16 +193,18 @@ class DefaultExecutionGraphDeploymentTest {
                         .setTaskManagerGateway(taskManagerGateway)
                         .createTestingLogicalSlot();
 
-        assertThat(vertex.getExecutionState()).isEqualTo(ExecutionState.CREATED);
-        vertex.getCurrentExecutionAttempt().transitionState(ExecutionState.SCHEDULED);
+        mainThreadUtils.execute(
+                () -> {
+                    assertThat(vertex.getExecutionState()).isEqualTo(ExecutionState.CREATED);
+                    vertex.getCurrentExecutionAttempt().transitionState(ExecutionState.SCHEDULED);
 
-        vertex.getCurrentExecutionAttempt()
-                .registerProducedPartitions(slot.getTaskManagerLocation())
-                .get();
-        vertex.deployToSlot(slot);
-
-        assertThat(vertex.getExecutionState()).isEqualTo(ExecutionState.DEPLOYING);
-        checkTaskOffloaded(eg, vertex.getJobvertexId());
+                    vertex.getCurrentExecutionAttempt()
+                            .registerProducedPartitions(slot.getTaskManagerLocation())
+                            .get();
+                    vertex.deployToSlot(slot);
+                    assertThat(vertex.getExecutionState()).isEqualTo(ExecutionState.DEPLOYING);
+                    checkTaskOffloaded(eg, vertex.getJobvertexId());
+                });
 
         TaskDeploymentDescriptor descr = tdd.get();
         assertThat(descr).isNotNull();
@@ -238,7 +240,7 @@ class DefaultExecutionGraphDeploymentTest {
         assertThat(shuffleDescriptors.length).isEqualTo(10);
 
         Iterator<ConsumedPartitionGroup> iteratorConsumedPartitionGroup =
-                vertex.getAllConsumedPartitionGroups().iterator();
+                mainThreadUtils.execute(() -> vertex.getAllConsumedPartitionGroups()).iterator();
         int idx = 0;
         for (IntermediateResultPartitionID partitionId : iteratorConsumedPartitionGroup.next()) {
             assertThat(shuffleDescriptors[idx++].getResultPartitionID().getPartitionId())
@@ -256,14 +258,20 @@ class DefaultExecutionGraphDeploymentTest {
         JobVertex v2 = new JobVertex("v2", jid2);
 
         SchedulerBase scheduler = setupScheduler(v1, 7650, v2, 2350);
-        Collection<Execution> executions =
-                new ArrayList<>(scheduler.getExecutionGraph().getRegisteredExecutions().values());
 
-        for (Execution e : executions) {
-            e.markFinished();
-        }
-
-        assertThat(scheduler.getExecutionGraph().getRegisteredExecutions()).isEmpty();
+        mainThreadUtils.execute(
+                () -> {
+                    Collection<Execution> executions =
+                            new ArrayList<>(
+                                    scheduler
+                                            .getExecutionGraph()
+                                            .getRegisteredExecutions()
+                                            .values());
+                    for (Execution e : executions) {
+                        e.markFinished();
+                    }
+                    assertThat(scheduler.getExecutionGraph().getRegisteredExecutions()).isEmpty();
+                });
     }
 
     @Test
@@ -276,14 +284,20 @@ class DefaultExecutionGraphDeploymentTest {
         JobVertex v2 = new JobVertex("v2", jid2);
 
         SchedulerBase scheduler = setupScheduler(v1, 7, v2, 6);
-        Collection<Execution> executions =
-                new ArrayList<>(scheduler.getExecutionGraph().getRegisteredExecutions().values());
 
-        for (Execution e : executions) {
-            e.markFailed(null);
-        }
-
-        assertThat(scheduler.getExecutionGraph().getRegisteredExecutions()).isEmpty();
+        mainThreadUtils.execute(
+                () -> {
+                    Collection<Execution> executions =
+                            new ArrayList<>(
+                                    scheduler
+                                            .getExecutionGraph()
+                                            .getRegisteredExecutions()
+                                            .values());
+                    for (Execution e : executions) {
+                        e.markFailed(null);
+                    }
+                    assertThat(scheduler.getExecutionGraph().getRegisteredExecutions()).isEmpty();
+                });
     }
 
     @Test
@@ -296,14 +310,20 @@ class DefaultExecutionGraphDeploymentTest {
         JobVertex v2 = new JobVertex("v2", jid2);
 
         SchedulerBase scheduler = setupScheduler(v1, 7, v2, 6);
-        Collection<Execution> executions =
-                new ArrayList<>(scheduler.getExecutionGraph().getRegisteredExecutions().values());
 
-        for (Execution e : executions) {
-            e.fail(null);
-        }
-
-        assertThat(scheduler.getExecutionGraph().getRegisteredExecutions()).isEmpty();
+        mainThreadUtils.execute(
+                () -> {
+                    Collection<Execution> executions =
+                            new ArrayList<>(
+                                    scheduler
+                                            .getExecutionGraph()
+                                            .getRegisteredExecutions()
+                                            .values());
+                    for (Execution e : executions) {
+                        e.fail(null);
+                    }
+                    assertThat(scheduler.getExecutionGraph().getRegisteredExecutions()).isEmpty();
+                });
     }
 
     /**
@@ -320,53 +340,66 @@ class DefaultExecutionGraphDeploymentTest {
 
         SchedulerBase scheduler = setupScheduler(v1, 1, v2, 1);
         ExecutionGraph graph = scheduler.getExecutionGraph();
-        Map<ExecutionAttemptID, Execution> executions = graph.getRegisteredExecutions();
-
-        // verify behavior for canceled executions
-        Execution execution1 = executions.values().iterator().next();
 
         IOMetrics ioMetrics = new IOMetrics(0, 0, 0, 0, 0, 0, 0);
         Map<String, Accumulator<?, ?>> accumulators = new HashMap<>();
         accumulators.put("acc", new IntCounter(4));
-        AccumulatorSnapshot accumulatorSnapshot =
-                new AccumulatorSnapshot(graph.getJobID(), execution1.getAttemptId(), accumulators);
 
-        TaskExecutionState state =
-                new TaskExecutionState(
-                        execution1.getAttemptId(),
-                        ExecutionState.CANCELED,
-                        null,
-                        accumulatorSnapshot,
-                        ioMetrics);
+        // verify behavior for canceled executions
+        mainThreadUtils.execute(
+                () -> {
+                    Map<ExecutionAttemptID, Execution> executions = graph.getRegisteredExecutions();
+                    Execution execution1 = executions.values().iterator().next();
 
-        scheduler.updateTaskExecutionState(state);
+                    AccumulatorSnapshot accumulatorSnapshot =
+                            new AccumulatorSnapshot(
+                                    graph.getJobID(), execution1.getAttemptId(), accumulators);
 
-        assertIOMetricsEqual(execution1.getIOMetrics(), ioMetrics);
-        assertThat(execution1.getUserAccumulators()).isNotNull();
-        assertThat(execution1.getUserAccumulators().get("acc").getLocalValue()).isEqualTo(4);
+                    TaskExecutionState state =
+                            new TaskExecutionState(
+                                    execution1.getAttemptId(),
+                                    ExecutionState.CANCELED,
+                                    null,
+                                    accumulatorSnapshot,
+                                    ioMetrics);
 
-        // verify behavior for failed executions
-        Execution execution2 = executions.values().iterator().next();
+                    scheduler.updateTaskExecutionState(state);
+
+                    assertIOMetricsEqual(execution1.getIOMetrics(), ioMetrics);
+                    assertThat(execution1.getUserAccumulators()).isNotNull();
+                    assertThat(execution1.getUserAccumulators().get("acc").getLocalValue())
+                            .isEqualTo(4);
+                });
 
         IOMetrics ioMetrics2 = new IOMetrics(0, 0, 0, 0, 0, 0, 0);
         Map<String, Accumulator<?, ?>> accumulators2 = new HashMap<>();
         accumulators2.put("acc", new IntCounter(8));
-        AccumulatorSnapshot accumulatorSnapshot2 =
-                new AccumulatorSnapshot(graph.getJobID(), execution2.getAttemptId(), accumulators2);
 
-        TaskExecutionState state2 =
-                new TaskExecutionState(
-                        execution2.getAttemptId(),
-                        ExecutionState.FAILED,
-                        null,
-                        accumulatorSnapshot2,
-                        ioMetrics2);
+        // verify behavior for failed executions
+        mainThreadUtils.execute(
+                () -> {
+                    Map<ExecutionAttemptID, Execution> executions = graph.getRegisteredExecutions();
+                    Execution execution2 = executions.values().iterator().next();
 
-        scheduler.updateTaskExecutionState(state2);
+                    AccumulatorSnapshot accumulatorSnapshot2 =
+                            new AccumulatorSnapshot(
+                                    graph.getJobID(), execution2.getAttemptId(), accumulators2);
 
-        assertIOMetricsEqual(execution2.getIOMetrics(), ioMetrics2);
-        assertThat(execution2.getUserAccumulators()).isNotNull();
-        assertThat(execution2.getUserAccumulators().get("acc").getLocalValue()).isEqualTo(8);
+                    TaskExecutionState state2 =
+                            new TaskExecutionState(
+                                    execution2.getAttemptId(),
+                                    ExecutionState.FAILED,
+                                    null,
+                                    accumulatorSnapshot2,
+                                    ioMetrics2);
+
+                    scheduler.updateTaskExecutionState(state2);
+
+                    assertIOMetricsEqual(execution2.getIOMetrics(), ioMetrics2);
+                    assertThat(execution2.getUserAccumulators()).isNotNull();
+                    assertThat(execution2.getUserAccumulators().get("acc").getLocalValue())
+                            .isEqualTo(8);
+                });
     }
 
     /**
@@ -383,24 +416,28 @@ class DefaultExecutionGraphDeploymentTest {
         JobVertex v2 = new JobVertex("v2", jid2);
 
         SchedulerBase scheduler = setupScheduler(v1, 1, v2, 1);
-        Map<ExecutionAttemptID, Execution> executions =
-                scheduler.getExecutionGraph().getRegisteredExecutions();
 
         IOMetrics ioMetrics = new IOMetrics(0, 0, 0, 0, 0, 0, 0);
         Map<String, Accumulator<?, ?>> accumulators = Collections.emptyMap();
 
-        Execution execution1 = executions.values().iterator().next();
-        execution1.cancel();
-        execution1.completeCancelling(accumulators, ioMetrics, false);
+        mainThreadUtils.execute(
+                () -> {
+                    Map<ExecutionAttemptID, Execution> executions =
+                            scheduler.getExecutionGraph().getRegisteredExecutions();
+                    Execution execution1 = executions.values().iterator().next();
+                    execution1.cancel();
+                    execution1.completeCancelling(accumulators, ioMetrics, false);
 
-        assertIOMetricsEqual(execution1.getIOMetrics(), ioMetrics);
-        assertThat(execution1.getUserAccumulators()).isEqualTo(accumulators);
+                    assertIOMetricsEqual(execution1.getIOMetrics(), ioMetrics);
+                    assertThat(execution1.getUserAccumulators()).isEqualTo(accumulators);
 
-        Execution execution2 = executions.values().iterator().next();
-        execution2.markFailed(new Throwable(), false, accumulators, ioMetrics, false, true);
+                    Execution execution2 = executions.values().iterator().next();
+                    execution2.markFailed(
+                            new Throwable(), false, accumulators, ioMetrics, false, true);
 
-        assertIOMetricsEqual(execution2.getIOMetrics(), ioMetrics);
-        assertThat(execution2.getUserAccumulators()).isEqualTo(accumulators);
+                    assertIOMetricsEqual(execution2.getIOMetrics(), ioMetrics);
+                    assertThat(execution2.getUserAccumulators()).isEqualTo(accumulators);
+                });
     }
 
     @Test
@@ -413,15 +450,21 @@ class DefaultExecutionGraphDeploymentTest {
         JobVertex v2 = new JobVertex("v2", jid2);
 
         SchedulerBase scheduler = setupScheduler(v1, 19, v2, 37);
-        Collection<Execution> executions =
-                new ArrayList<>(scheduler.getExecutionGraph().getRegisteredExecutions().values());
 
-        for (Execution e : executions) {
-            e.cancel();
-            e.completeCancelling();
-        }
-
-        assertThat(scheduler.getExecutionGraph().getRegisteredExecutions()).isEmpty();
+        mainThreadUtils.execute(
+                () -> {
+                    Collection<Execution> executions =
+                            new ArrayList<>(
+                                    scheduler
+                                            .getExecutionGraph()
+                                            .getRegisteredExecutions()
+                                            .values());
+                    for (Execution e : executions) {
+                        e.cancel();
+                        e.completeCancelling();
+                    }
+                    assertThat(scheduler.getExecutionGraph().getRegisteredExecutions()).isEmpty();
+                });
     }
 
     /**
@@ -448,19 +491,18 @@ class DefaultExecutionGraphDeploymentTest {
 
         final JobGraph graph = JobGraphTestUtils.batchJobGraph(v1, v2);
 
-        DirectScheduledExecutorService directExecutor = new DirectScheduledExecutorService();
-
-        // execution graph that executes actions synchronously
+        // Use DirectScheduledExecutorService for the IO executor so that deployment
+        // pipeline IO operations complete synchronously and their main-thread callbacks
+        // are queued before any test-submitted tasks (avoiding races with state transitions).
         final SchedulerBase scheduler =
                 new DefaultSchedulerBuilder(
                                 graph,
-                                ComponentMainThreadExecutorServiceAdapter.forMainThread(),
-                                EXECUTOR_EXTENSION.getExecutor())
+                                mainThreadUtils.getMainThreadExecutor(),
+                                new DirectScheduledExecutorService())
                         .setExecutionSlotAllocatorFactory(
                                 SchedulerTestingUtils.newSlotSharingExecutionSlotAllocatorFactory(
                                         TestingPhysicalSlotProvider
                                                 .createWithLimitedAmountOfPhysicalSlots(1)))
-                        .setFutureExecutor(directExecutor)
                         .setBlobWriter(blobWriter)
                         .build();
 
@@ -469,19 +511,21 @@ class DefaultExecutionGraphDeploymentTest {
         checkJobOffloaded((DefaultExecutionGraph) eg);
 
         // schedule, this triggers mock deployment
-        scheduler.startScheduling();
+        mainThreadUtils.execute(scheduler::startScheduling);
 
-        ExecutionAttemptID attemptID =
-                eg.getJobVertex(v1.getID())
-                        .getTaskVertices()[0]
-                        .getCurrentExecutionAttempt()
-                        .getAttemptId();
-        scheduler.updateTaskExecutionState(
-                new TaskExecutionState(attemptID, ExecutionState.RUNNING));
-        scheduler.updateTaskExecutionState(
-                new TaskExecutionState(attemptID, ExecutionState.FINISHED, null));
-
-        assertThat(eg.getState()).isEqualTo(JobStatus.FAILED);
+        mainThreadUtils.execute(
+                () -> {
+                    ExecutionAttemptID attemptID =
+                            eg.getJobVertex(v1.getID())
+                                    .getTaskVertices()[0]
+                                    .getCurrentExecutionAttempt()
+                                    .getAttemptId();
+                    scheduler.updateTaskExecutionState(
+                            new TaskExecutionState(attemptID, ExecutionState.RUNNING));
+                    scheduler.updateTaskExecutionState(
+                            new TaskExecutionState(attemptID, ExecutionState.FINISHED, null));
+                    assertThat(eg.getState()).isEqualTo(JobStatus.FAILED);
+                });
     }
 
     // ------------------------------------------------------------------------
@@ -509,17 +553,16 @@ class DefaultExecutionGraphDeploymentTest {
         v1.setInvokableClass(BatchTask.class);
         v2.setInvokableClass(BatchTask.class);
 
-        DirectScheduledExecutorService executorService = new DirectScheduledExecutorService();
-
-        // execution graph that executes actions synchronously
+        // Use DirectScheduledExecutorService for the IO executor so that deployment
+        // pipeline IO operations complete synchronously and their main-thread callbacks
+        // are queued before any test-submitted tasks (avoiding races with state transitions).
         final SchedulerBase scheduler =
                 new DefaultSchedulerBuilder(
                                 JobGraphTestUtils.streamingJobGraph(v1, v2),
-                                ComponentMainThreadExecutorServiceAdapter.forMainThread(),
-                                EXECUTOR_EXTENSION.getExecutor())
+                                mainThreadUtils.getMainThreadExecutor(),
+                                new DirectScheduledExecutorService())
                         .setExecutionSlotAllocatorFactory(
                                 SchedulerTestingUtils.newSlotSharingExecutionSlotAllocatorFactory())
-                        .setFutureExecutor(executorService)
                         .setBlobWriter(blobWriter)
                         .build();
         final ExecutionGraph eg = scheduler.getExecutionGraph();
@@ -527,10 +570,13 @@ class DefaultExecutionGraphDeploymentTest {
         checkJobOffloaded((DefaultExecutionGraph) eg);
 
         // schedule, this triggers mock deployment
-        scheduler.startScheduling();
+        mainThreadUtils.execute(scheduler::startScheduling);
 
-        Map<ExecutionAttemptID, Execution> executions = eg.getRegisteredExecutions();
-        assertThat(executions).hasSize(dop1 + dop2);
+        mainThreadUtils.execute(
+                () -> {
+                    Map<ExecutionAttemptID, Execution> executions = eg.getRegisteredExecutions();
+                    assertThat(executions).hasSize(dop1 + dop2);
+                });
 
         return scheduler;
     }
@@ -601,32 +647,37 @@ class DefaultExecutionGraphDeploymentTest {
 
         final TestingPhysicalSlotProvider physicalSlotProvider =
                 TestingPhysicalSlotProvider.createWithoutImmediatePhysicalSlotCreation();
+        // Use DirectScheduledExecutorService for the IO executor so that deployment
+        // pipeline IO operations complete synchronously and their main-thread callbacks
+        // are queued before any test-submitted tasks (avoiding races with state transitions).
         final SchedulerBase scheduler =
                 new DefaultSchedulerBuilder(
                                 jobGraph,
-                                ComponentMainThreadExecutorServiceAdapter.forMainThread(),
-                                EXECUTOR_EXTENSION.getExecutor())
+                                mainThreadUtils.getMainThreadExecutor(),
+                                new DirectScheduledExecutorService())
                         .setExecutionSlotAllocatorFactory(
                                 SchedulerTestingUtils.newSlotSharingExecutionSlotAllocatorFactory(
                                         physicalSlotProvider))
-                        .setFutureExecutor(new DirectScheduledExecutorService())
                         .build();
         final ExecutionGraph executionGraph = scheduler.getExecutionGraph();
 
-        scheduler.startScheduling();
+        mainThreadUtils.execute(scheduler::startScheduling);
 
         // change the order in which the futures are completed
         final List<CompletableFuture<TestingPhysicalSlot>> shuffledFutures =
                 new ArrayList<>(physicalSlotProvider.getResponses().values());
         Collections.shuffle(shuffledFutures);
 
-        for (CompletableFuture<TestingPhysicalSlot> slotFuture : shuffledFutures) {
-            slotFuture.complete(
-                    TestingPhysicalSlot.builder()
-                            .withTaskManagerLocation(taskManagerLocation)
-                            .withTaskManagerGateway(taskManagerGateway)
-                            .build());
-        }
+        mainThreadUtils.execute(
+                () -> {
+                    for (CompletableFuture<TestingPhysicalSlot> slotFuture : shuffledFutures) {
+                        slotFuture.complete(
+                                TestingPhysicalSlot.builder()
+                                        .withTaskManagerLocation(taskManagerLocation)
+                                        .withTaskManagerGateway(taskManagerGateway)
+                                        .build());
+                    }
+                });
 
         final List<ExecutionAttemptID> submittedTasks = new ArrayList<>(numberTasks);
 
@@ -634,17 +685,31 @@ class DefaultExecutionGraphDeploymentTest {
             submittedTasks.add(submittedTasksQueue.take());
         }
 
-        final Collection<ExecutionAttemptID> firstStage = new ArrayList<>(sourceParallelism);
-        for (ExecutionVertex taskVertex :
-                executionGraph.getJobVertex(sourceVertex.getID()).getTaskVertices()) {
-            firstStage.add(taskVertex.getCurrentExecutionAttempt().getAttemptId());
-        }
+        final Collection<ExecutionAttemptID> firstStage =
+                mainThreadUtils.execute(
+                        () -> {
+                            List<ExecutionAttemptID> stage = new ArrayList<>(sourceParallelism);
+                            for (ExecutionVertex taskVertex :
+                                    executionGraph
+                                            .getJobVertex(sourceVertex.getID())
+                                            .getTaskVertices()) {
+                                stage.add(taskVertex.getCurrentExecutionAttempt().getAttemptId());
+                            }
+                            return stage;
+                        });
 
-        final Collection<ExecutionAttemptID> secondStage = new ArrayList<>(sinkParallelism);
-        for (ExecutionVertex taskVertex :
-                executionGraph.getJobVertex(sinkVertex.getID()).getTaskVertices()) {
-            secondStage.add(taskVertex.getCurrentExecutionAttempt().getAttemptId());
-        }
+        final Collection<ExecutionAttemptID> secondStage =
+                mainThreadUtils.execute(
+                        () -> {
+                            List<ExecutionAttemptID> stage = new ArrayList<>(sinkParallelism);
+                            for (ExecutionVertex taskVertex :
+                                    executionGraph
+                                            .getJobVertex(sinkVertex.getID())
+                                            .getTaskVertices()) {
+                                stage.add(taskVertex.getCurrentExecutionAttempt().getAttemptId());
+                            }
+                            return stage;
+                        });
 
         assertThat(
                         isDeployedInTopologicalOrder(
@@ -672,7 +737,7 @@ class DefaultExecutionGraphDeploymentTest {
                 .setJobGraph(jobGraph)
                 .setJobMasterConfig(configuration)
                 .setBlobWriter(blobWriter)
-                .build(EXECUTOR_EXTENSION.getExecutor());
+                .build(new DirectScheduledExecutorService());
     }
 
     private static boolean isDeployedInTopologicalOrder(

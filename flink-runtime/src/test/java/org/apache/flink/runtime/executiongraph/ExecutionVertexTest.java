@@ -21,7 +21,6 @@ package org.apache.flink.runtime.executiongraph;
 import org.apache.flink.configuration.Configuration;
 import org.apache.flink.configuration.JobManagerOptions;
 import org.apache.flink.runtime.clusterframework.types.AllocationID;
-import org.apache.flink.runtime.concurrent.ComponentMainThreadExecutorServiceAdapter;
 import org.apache.flink.runtime.io.network.partition.ResultPartitionID;
 import org.apache.flink.runtime.io.network.partition.ResultPartitionType;
 import org.apache.flink.runtime.io.network.partition.TestingJobMasterPartitionTracker;
@@ -36,6 +35,7 @@ import org.apache.flink.runtime.scheduler.SchedulerTestingUtils;
 import org.apache.flink.runtime.scheduler.TestingPhysicalSlot;
 import org.apache.flink.runtime.scheduler.TestingPhysicalSlotProvider;
 import org.apache.flink.runtime.taskmanager.TaskManagerLocation;
+import org.apache.flink.runtime.testutils.DirectScheduledExecutorService;
 import org.apache.flink.testutils.TestingUtils;
 import org.apache.flink.testutils.executor.TestExecutorExtension;
 
@@ -56,8 +56,17 @@ class ExecutionVertexTest {
     static final TestExecutorExtension<ScheduledExecutorService> EXECUTOR_RESOURCE =
             TestingUtils.defaultExecutorExtension();
 
+    @RegisterExtension
+    static final TestingComponentMainThreadExecutor.Extension MAIN_EXECUTOR_RESOURCE =
+            new TestingComponentMainThreadExecutor.Extension();
+
+    private final MainThreadExecutionGraphTestUtils mainThreadUtils =
+            new MainThreadExecutionGraphTestUtils(
+                    MAIN_EXECUTOR_RESOURCE.getComponentMainThreadTestExecutor());
+
     @Test
     void testResetForNewExecutionReleasesPartitions() throws Exception {
+
         final JobVertex producerJobVertex = ExecutionGraphTestUtils.createNoOpVertex(1);
         final JobVertex consumerJobVertex = ExecutionGraphTestUtils.createNoOpVertex(1);
 
@@ -76,41 +85,56 @@ class ExecutionVertexTest {
 
         final JobGraph jobGraph =
                 JobGraphTestUtils.streamingJobGraph(producerJobVertex, consumerJobVertex);
+        // Use DirectScheduledExecutorService for the IO executor so that deployment
+        // pipeline IO operations complete synchronously and their main-thread callbacks
+        // are queued before any test-submitted tasks (avoiding races with state transitions).
         final SchedulerBase scheduler =
                 new DefaultSchedulerBuilder(
                                 jobGraph,
-                                ComponentMainThreadExecutorServiceAdapter.forMainThread(),
-                                EXECUTOR_RESOURCE.getExecutor())
+                                mainThreadUtils.getMainThreadExecutor(),
+                                new DirectScheduledExecutorService())
                         .setPartitionTracker(partitionTracker)
                         .build();
 
-        scheduler.startScheduling();
+        mainThreadUtils.execute(scheduler::startScheduling);
 
         final ExecutionJobVertex producerExecutionJobVertex =
-                scheduler.getExecutionJobVertex(producerJobVertex.getID());
+                mainThreadUtils.execute(
+                        () -> scheduler.getExecutionJobVertex(producerJobVertex.getID()));
 
         Execution execution =
-                producerExecutionJobVertex.getTaskVertices()[0].getCurrentExecutionAttempt();
+                mainThreadUtils.execute(
+                        () ->
+                                producerExecutionJobVertex.getTaskVertices()[0]
+                                        .getCurrentExecutionAttempt());
 
         assertThat(releasePartitionsFuture).isNotDone();
 
-        execution.markFinished();
+        mainThreadUtils.execute(() -> execution.markFinished());
 
         assertThat(releasePartitionsFuture).isNotDone();
 
-        for (ExecutionVertex executionVertex : producerExecutionJobVertex.getTaskVertices()) {
-            executionVertex.resetForNewExecution();
-        }
+        mainThreadUtils.execute(
+                () -> {
+                    for (ExecutionVertex executionVertex :
+                            producerExecutionJobVertex.getTaskVertices()) {
+                        executionVertex.resetForNewExecution();
+                    }
+                });
 
-        final IntermediateResultPartitionID intermediateResultPartitionID =
-                producerExecutionJobVertex.getProducedDataSets()[0].getPartitions()[0]
-                        .getPartitionId();
         final ResultPartitionID resultPartitionID =
-                execution
-                        .getResultPartitionDeploymentDescriptor(intermediateResultPartitionID)
-                        .get()
-                        .getShuffleDescriptor()
-                        .getResultPartitionID();
+                mainThreadUtils.execute(
+                        () -> {
+                            final IntermediateResultPartitionID intermediateResultPartitionID =
+                                    producerExecutionJobVertex.getProducedDataSets()[0]
+                                            .getPartitions()[0].getPartitionId();
+                            return execution
+                                    .getResultPartitionDeploymentDescriptor(
+                                            intermediateResultPartitionID)
+                                    .get()
+                                    .getShuffleDescriptor()
+                                    .getResultPartitionID();
+                        });
 
         assertThat(releasePartitionsFuture.get()).contains(resultPartitionID);
     }
@@ -127,39 +151,48 @@ class ExecutionVertexTest {
         final SchedulerBase scheduler =
                 new DefaultSchedulerBuilder(
                                 jobGraph,
-                                ComponentMainThreadExecutorServiceAdapter.forMainThread(),
-                                EXECUTOR_RESOURCE.getExecutor())
+                                mainThreadUtils.getMainThreadExecutor(),
+                                new DirectScheduledExecutorService())
                         .setJobMasterConfiguration(configuration)
                         .setExecutionSlotAllocatorFactory(
                                 SchedulerTestingUtils.newSlotSharingExecutionSlotAllocatorFactory(
                                         withLimitedAmountOfPhysicalSlots))
                         .build();
 
-        scheduler.startScheduling();
+        mainThreadUtils.execute(scheduler::startScheduling);
 
         final ExecutionJobVertex sourceExecutionJobVertex =
-                scheduler.getExecutionJobVertex(source.getID());
+                mainThreadUtils.execute(() -> scheduler.getExecutionJobVertex(source.getID()));
 
-        final ExecutionVertex sourceExecutionVertex = sourceExecutionJobVertex.getTaskVertices()[0];
-        final Execution firstExecution = sourceExecutionVertex.getCurrentExecutionAttempt();
+        final ExecutionVertex sourceExecutionVertex =
+                mainThreadUtils.execute(() -> sourceExecutionJobVertex.getTaskVertices()[0]);
+        final Execution firstExecution =
+                mainThreadUtils.execute(() -> sourceExecutionVertex.getCurrentExecutionAttempt());
 
         final TestingPhysicalSlot physicalSlot =
                 withLimitedAmountOfPhysicalSlots.getFirstResponseOrFail().join();
         final AllocationID allocationId = physicalSlot.getAllocationId();
         final TaskManagerLocation taskManagerLocation = physicalSlot.getTaskManagerLocation();
 
-        cancelExecution(firstExecution);
-        sourceExecutionVertex.resetForNewExecution();
+        mainThreadUtils.execute(() -> cancelExecution(firstExecution));
+        mainThreadUtils.execute(
+                () -> {
+                    sourceExecutionVertex.resetForNewExecution();
+                    assertThat(sourceExecutionVertex.findLastAllocation()).hasValue(allocationId);
+                    assertThat(sourceExecutionVertex.findLastLocation())
+                            .hasValue(taskManagerLocation);
+                });
 
-        assertThat(sourceExecutionVertex.findLastAllocation()).hasValue(allocationId);
-        assertThat(sourceExecutionVertex.findLastLocation()).hasValue(taskManagerLocation);
-
-        final Execution secondExecution = sourceExecutionVertex.getCurrentExecutionAttempt();
-        cancelExecution(secondExecution);
-        sourceExecutionVertex.resetForNewExecution();
-
-        assertThat(sourceExecutionVertex.findLastAllocation()).hasValue(allocationId);
-        assertThat(sourceExecutionVertex.findLastLocation()).hasValue(taskManagerLocation);
+        final Execution secondExecution =
+                mainThreadUtils.execute(() -> sourceExecutionVertex.getCurrentExecutionAttempt());
+        mainThreadUtils.execute(() -> cancelExecution(secondExecution));
+        mainThreadUtils.execute(
+                () -> {
+                    sourceExecutionVertex.resetForNewExecution();
+                    assertThat(sourceExecutionVertex.findLastAllocation()).hasValue(allocationId);
+                    assertThat(sourceExecutionVertex.findLastLocation())
+                            .hasValue(taskManagerLocation);
+                });
     }
 
     private void cancelExecution(Execution execution) {

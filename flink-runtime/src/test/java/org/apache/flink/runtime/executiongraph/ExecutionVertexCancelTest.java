@@ -19,7 +19,6 @@
 package org.apache.flink.runtime.executiongraph;
 
 import org.apache.flink.api.common.JobStatus;
-import org.apache.flink.runtime.concurrent.ComponentMainThreadExecutorServiceAdapter;
 import org.apache.flink.runtime.execution.ExecutionState;
 import org.apache.flink.runtime.executiongraph.utils.SimpleAckingTaskManagerGateway;
 import org.apache.flink.runtime.jobgraph.JobGraphTestUtils;
@@ -28,6 +27,7 @@ import org.apache.flink.runtime.jobmaster.TestingLogicalSlotBuilder;
 import org.apache.flink.runtime.messages.Acknowledge;
 import org.apache.flink.runtime.scheduler.SchedulerBase;
 import org.apache.flink.runtime.scheduler.SchedulerTestingUtils;
+import org.apache.flink.runtime.testutils.DirectScheduledExecutorService;
 import org.apache.flink.testutils.TestingUtils;
 import org.apache.flink.testutils.executor.TestExecutorExtension;
 import org.apache.flink.util.concurrent.FutureUtils;
@@ -53,6 +53,10 @@ class ExecutionVertexCancelTest {
     @RegisterExtension
     static final TestExecutorExtension<ScheduledExecutorService> EXECUTOR_RESOURCE =
             TestingUtils.defaultExecutorExtension();
+
+    @RegisterExtension
+    static final TestingComponentMainThreadExecutor.Extension MAIN_EXECUTOR_RESOURCE =
+            new TestingComponentMainThreadExecutor.Extension();
 
     // --------------------------------------------------------------------------------------------
     //  Canceling in different states
@@ -242,36 +246,56 @@ class ExecutionVertexCancelTest {
         }
     }
 
+    private final MainThreadExecutionGraphTestUtils mainThreadUtils =
+            new MainThreadExecutionGraphTestUtils(
+                    MAIN_EXECUTOR_RESOURCE.getComponentMainThreadTestExecutor());
+
     @Test
     void testSendCancelAndReceiveFail() throws Exception {
+        // Use DirectScheduledExecutorService for the IO executor so that deployment
+        // pipeline IO operations complete synchronously and their main-thread callbacks
+        // are queued before any test-submitted tasks (avoiding races with state transitions).
         final SchedulerBase scheduler =
                 SchedulerTestingUtils.createScheduler(
                         JobGraphTestUtils.streamingJobGraph(createNoOpVertex(10)),
-                        ComponentMainThreadExecutorServiceAdapter.forMainThread(),
-                        EXECUTOR_RESOURCE.getExecutor());
+                        mainThreadUtils.getMainThreadExecutor(),
+                        new DirectScheduledExecutorService());
         final ExecutionGraph graph = scheduler.getExecutionGraph();
 
-        scheduler.startScheduling();
+        mainThreadUtils.execute(scheduler::startScheduling);
 
-        ExecutionGraphTestUtils.switchAllVerticesToRunning(graph);
-        assertThat(graph.getState()).isEqualTo(JobStatus.RUNNING);
-
+        mainThreadUtils.switchAllVerticesToRunning(graph);
         final ExecutionVertex[] vertices =
-                graph.getVerticesTopologically().iterator().next().getTaskVertices();
-        assertThat(graph.getRegisteredExecutions()).hasSize(vertices.length);
+                mainThreadUtils.execute(
+                        () -> {
+                            assertThat(graph.getState()).isEqualTo(JobStatus.RUNNING);
+                            ExecutionVertex[] v =
+                                    graph.getVerticesTopologically()
+                                            .iterator()
+                                            .next()
+                                            .getTaskVertices();
+                            assertThat(graph.getRegisteredExecutions()).hasSize(v.length);
+                            return v;
+                        });
 
-        final Execution exec = vertices[3].getCurrentExecutionAttempt();
-        exec.cancel();
-        assertThat(exec.getState()).isEqualTo(ExecutionState.CANCELING);
+        final Execution exec =
+                mainThreadUtils.execute(() -> vertices[3].getCurrentExecutionAttempt());
+        mainThreadUtils.execute(
+                () -> {
+                    exec.cancel();
+                    assertThat(exec.getState()).isEqualTo(ExecutionState.CANCELING);
+                });
 
-        exec.markFailed(new Exception("test"));
-        assertThat(
-                        exec.getState() == ExecutionState.FAILED
-                                || exec.getState() == ExecutionState.CANCELED)
-                .isTrue();
-
-        assertThat(exec.getAssignedResource().isAlive()).isFalse();
-        assertThat(graph.getRegisteredExecutions()).hasSize(vertices.length - 1);
+        mainThreadUtils.execute(
+                () -> {
+                    exec.markFailed(new Exception("test"));
+                    assertThat(
+                                    exec.getState() == ExecutionState.FAILED
+                                            || exec.getState() == ExecutionState.CANCELED)
+                            .isTrue();
+                    assertThat(exec.getAssignedResource().isAlive()).isFalse();
+                    assertThat(graph.getRegisteredExecutions()).hasSize(vertices.length - 1);
+                });
     }
 
     private static class CancelSequenceSimpleAckingTaskManagerGateway
