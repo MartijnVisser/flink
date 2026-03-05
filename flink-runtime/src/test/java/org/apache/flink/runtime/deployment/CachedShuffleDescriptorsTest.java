@@ -18,7 +18,6 @@
 
 package org.apache.flink.runtime.deployment;
 
-import org.apache.flink.runtime.concurrent.ComponentMainThreadExecutorServiceAdapter;
 import org.apache.flink.runtime.deployment.TaskDeploymentDescriptor.MaybeOffloaded;
 import org.apache.flink.runtime.deployment.TaskDeploymentDescriptor.NonOffloaded;
 import org.apache.flink.runtime.deployment.TaskDeploymentDescriptorFactory.ShuffleDescriptorAndIndex;
@@ -27,6 +26,8 @@ import org.apache.flink.runtime.executiongraph.ExecutionGraph;
 import org.apache.flink.runtime.executiongraph.ExecutionJobVertex;
 import org.apache.flink.runtime.executiongraph.ExecutionVertex;
 import org.apache.flink.runtime.executiongraph.IntermediateResultPartition;
+import org.apache.flink.runtime.executiongraph.MainThreadExecutionGraphTestUtils;
+import org.apache.flink.runtime.executiongraph.TestingComponentMainThreadExecutor;
 import org.apache.flink.runtime.io.network.partition.ResultPartitionType;
 import org.apache.flink.runtime.jobgraph.DistributionPattern;
 import org.apache.flink.runtime.jobgraph.JobGraph;
@@ -37,8 +38,7 @@ import org.apache.flink.runtime.scheduler.SchedulerBase;
 import org.apache.flink.runtime.scheduler.strategy.ConsumedPartitionGroup;
 import org.apache.flink.runtime.shuffle.ShuffleDescriptor;
 import org.apache.flink.runtime.testtasks.NoOpInvokable;
-import org.apache.flink.testutils.TestingUtils;
-import org.apache.flink.testutils.executor.TestExecutorExtension;
+import org.apache.flink.runtime.testutils.DirectScheduledExecutorService;
 import org.apache.flink.util.CompressedSerializedValue;
 
 import org.junit.jupiter.api.Test;
@@ -48,7 +48,6 @@ import java.io.IOException;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
-import java.util.concurrent.ScheduledExecutorService;
 
 import static org.apache.flink.runtime.jobgraph.DistributionPattern.ALL_TO_ALL;
 import static org.apache.flink.runtime.util.JobVertexConnectionUtils.connectNewDataSetAsInput;
@@ -56,9 +55,14 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 /** Tests for {@link CachedShuffleDescriptors}. */
 class CachedShuffleDescriptorsTest {
+
     @RegisterExtension
-    static final TestExecutorExtension<ScheduledExecutorService> EXECUTOR_RESOURCE =
-            TestingUtils.defaultExecutorExtension();
+    static final TestingComponentMainThreadExecutor.Extension MAIN_EXECUTOR_RESOURCE =
+            new TestingComponentMainThreadExecutor.Extension();
+
+    private final MainThreadExecutionGraphTestUtils mainThreadUtils =
+            new MainThreadExecutionGraphTestUtils(
+                    MAIN_EXECUTOR_RESOURCE.getComponentMainThreadTestExecutor());
 
     @Test
     void testCreateAndGet() throws Exception {
@@ -208,10 +212,10 @@ class CachedShuffleDescriptorsTest {
         SchedulerBase scheduler =
                 new DefaultSchedulerBuilder(
                                 jobGraph,
-                                ComponentMainThreadExecutorServiceAdapter.forMainThread(),
-                                EXECUTOR_RESOURCE.getExecutor())
+                                mainThreadUtils.getMainThreadExecutor(),
+                                new DirectScheduledExecutorService())
                         .build();
-        scheduler.startScheduling();
+        mainThreadUtils.execute(scheduler::startScheduling);
         return scheduler.getExecutionGraph();
     }
 

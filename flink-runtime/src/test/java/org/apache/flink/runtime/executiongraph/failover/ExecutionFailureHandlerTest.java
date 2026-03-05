@@ -23,17 +23,16 @@ import org.apache.flink.core.failure.TestingFailureEnricher;
 import org.apache.flink.events.Event;
 import org.apache.flink.events.EventBuilder;
 import org.apache.flink.metrics.groups.UnregisteredMetricsGroup;
-import org.apache.flink.runtime.concurrent.ComponentMainThreadExecutorServiceAdapter;
 import org.apache.flink.runtime.execution.SuppressRestartsException;
 import org.apache.flink.runtime.executiongraph.Execution;
+import org.apache.flink.runtime.executiongraph.TestingComponentMainThreadExecutor;
 import org.apache.flink.runtime.jobgraph.JobVertexID;
 import org.apache.flink.runtime.scheduler.adaptive.JobFailureMetricReporter;
 import org.apache.flink.runtime.scheduler.strategy.ExecutionVertexID;
 import org.apache.flink.runtime.scheduler.strategy.SchedulingExecutionVertex;
 import org.apache.flink.runtime.scheduler.strategy.SchedulingTopology;
 import org.apache.flink.runtime.scheduler.strategy.TestingSchedulingTopology;
-import org.apache.flink.testutils.TestingUtils;
-import org.apache.flink.testutils.executor.TestExecutorExtension;
+import org.apache.flink.runtime.testutils.DirectScheduledExecutorService;
 import org.apache.flink.util.IterableUtils;
 
 import org.junit.jupiter.api.BeforeEach;
@@ -46,7 +45,6 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.ExecutionException;
-import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Collectors;
 
@@ -56,11 +54,11 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 /** Tests for {@link ExecutionFailureHandler}. */
 class ExecutionFailureHandlerTest {
 
-    @RegisterExtension
-    private static final TestExecutorExtension<ScheduledExecutorService> EXECUTOR_RESOURCE =
-            TestingUtils.defaultExecutorExtension();
-
     private static final long RESTART_DELAY_MS = 1234L;
+
+    @RegisterExtension
+    static final TestingComponentMainThreadExecutor.Extension MAIN_EXECUTOR_RESOURCE =
+            new TestingComponentMainThreadExecutor.Extension();
 
     private SchedulingTopology schedulingTopology;
 
@@ -95,7 +93,9 @@ class ExecutionFailureHandlerTest {
                         schedulingTopology,
                         failoverStrategy,
                         backoffTimeStrategy,
-                        ComponentMainThreadExecutorServiceAdapter.forMainThread(),
+                        MAIN_EXECUTOR_RESOURCE
+                                .getComponentMainThreadTestExecutor()
+                                .getMainThreadExecutor(),
                         Collections.singleton(testingFailureEnricher),
                         null,
                         null,
@@ -115,7 +115,7 @@ class ExecutionFailureHandlerTest {
         failoverStrategy.setTasksToRestart(tasksToRestart);
 
         Execution execution =
-                FailureHandlingResultTest.createExecution(EXECUTOR_RESOURCE.getExecutor());
+                FailureHandlingResultTest.createExecution(new DirectScheduledExecutorService());
         Exception cause = new Exception("test failure");
         long timestamp = System.currentTimeMillis();
         // trigger a task failure
@@ -134,6 +134,7 @@ class ExecutionFailureHandlerTest {
         assertThat(result.getFailureLabels().get())
                 .isEqualTo(testingFailureEnricher.getFailureLabels());
         assertThat(executionFailureHandler.getNumberOfRestarts()).isOne();
+        drainMainThreadExecutor();
         checkMetrics(eventCollector, false, true);
     }
 
@@ -145,7 +146,7 @@ class ExecutionFailureHandlerTest {
 
         // trigger a task failure
         Execution execution =
-                FailureHandlingResultTest.createExecution(EXECUTOR_RESOURCE.getExecutor());
+                FailureHandlingResultTest.createExecution(new DirectScheduledExecutorService());
         final Throwable error = new Exception("expected test failure");
         final long timestamp = System.currentTimeMillis();
         final FailureHandlingResult result =
@@ -171,6 +172,7 @@ class ExecutionFailureHandlerTest {
                 .isInstanceOf(IllegalStateException.class);
 
         assertThat(executionFailureHandler.getNumberOfRestarts()).isZero();
+        drainMainThreadExecutor();
         checkMetrics(eventCollector, false, false);
     }
 
@@ -180,7 +182,7 @@ class ExecutionFailureHandlerTest {
 
         // trigger an unrecoverable task failure
         Execution execution =
-                FailureHandlingResultTest.createExecution(EXECUTOR_RESOURCE.getExecutor());
+                FailureHandlingResultTest.createExecution(new DirectScheduledExecutorService());
         final Throwable error =
                 new Exception(new SuppressRestartsException(new Exception("test failure")));
         final long timestamp = System.currentTimeMillis();
@@ -213,6 +215,7 @@ class ExecutionFailureHandlerTest {
                 .isInstanceOf(IllegalStateException.class);
 
         assertThat(executionFailureHandler.getNumberOfRestarts()).isZero();
+        drainMainThreadExecutor();
         checkMetrics(eventCollector, false, false);
     }
 
@@ -223,7 +226,7 @@ class ExecutionFailureHandlerTest {
         failoverStrategy.setTasksToRestart(tasksToRestart);
 
         Execution execution =
-                FailureHandlingResultTest.createExecution(EXECUTOR_RESOURCE.getExecutor());
+                FailureHandlingResultTest.createExecution(new DirectScheduledExecutorService());
         final Throwable error = new Exception("expected test failure");
 
         testHandlingRootException(execution, error);
@@ -239,6 +242,7 @@ class ExecutionFailureHandlerTest {
         isNewAttempt.set(false);
         testHandlingConcurrentException(execution, error);
         testHandlingConcurrentException(execution, error);
+        drainMainThreadExecutor();
         checkMetrics(eventCollector, false, true);
     }
 
@@ -306,12 +310,22 @@ class ExecutionFailureHandlerTest {
         assertThat(testingFailureEnricher.getSeenThrowables()).containsExactly(error);
         assertThat(result.getFailureLabels().get())
                 .isEqualTo(testingFailureEnricher.getFailureLabels());
+        drainMainThreadExecutor();
         checkMetrics(eventCollector, true, true);
     }
 
     // ------------------------------------------------------------------------
     //  utilities
     // ------------------------------------------------------------------------
+
+    /**
+     * Drains the main thread executor by submitting a no-op and waiting for it to complete. This
+     * ensures that all previously queued callbacks (e.g., metric reporting via thenAcceptAsync)
+     * have been processed before assertions check their results.
+     */
+    private void drainMainThreadExecutor() {
+        MAIN_EXECUTOR_RESOURCE.getComponentMainThreadTestExecutor().execute(() -> {});
+    }
 
     /**
      * A FailoverStrategy implementation for tests. It always suggests restarting the given tasks to

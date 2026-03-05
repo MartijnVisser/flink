@@ -20,6 +20,7 @@ package org.apache.flink.runtime.executiongraph;
 
 import org.apache.flink.api.common.JobStatus;
 import org.apache.flink.api.common.time.Deadline;
+import org.apache.flink.runtime.concurrent.ComponentMainThreadExecutor;
 import org.apache.flink.runtime.concurrent.ComponentMainThreadExecutorServiceAdapter;
 import org.apache.flink.runtime.execution.ExecutionState;
 import org.apache.flink.runtime.jobgraph.IntermediateResultPartitionID;
@@ -353,6 +354,22 @@ public class ExecutionGraphTestUtils {
         return executionGraph;
     }
 
+    public static DefaultExecutionGraph createExecutionGraph(
+            ComponentMainThreadExecutor mainThreadExecutor,
+            ScheduledExecutorService executor,
+            JobVertex... vertices)
+            throws Exception {
+
+        checkNotNull(vertices);
+
+        DefaultExecutionGraph executionGraph =
+                TestingDefaultExecutionGraphBuilder.newBuilder()
+                        .setJobGraph(JobGraphTestUtils.streamingJobGraph(vertices))
+                        .build(executor);
+        executionGraph.start(mainThreadExecutor);
+        return executionGraph;
+    }
+
     public static JobVertex createNoOpVertex(int parallelism) {
         return createNoOpVertex("vertex", parallelism);
     }
@@ -423,6 +440,20 @@ public class ExecutionGraphTestUtils {
                                 ComponentMainThreadExecutorServiceAdapter.forMainThread(),
                                 executor)
                         .build();
+
+        return scheduler.getExecutionJobVertex(jobVertex.getID());
+    }
+
+    public static ExecutionJobVertex getExecutionJobVertex(
+            JobVertex jobVertex,
+            ComponentMainThreadExecutor mainThreadExecutor,
+            ScheduledExecutorService executor)
+            throws Exception {
+
+        JobGraph jobGraph = JobGraphTestUtils.batchJobGraph(jobVertex);
+
+        SchedulerBase scheduler =
+                new DefaultSchedulerBuilder(jobGraph, mainThreadExecutor, executor).build();
 
         return scheduler.getExecutionJobVertex(jobVertex.getID());
     }

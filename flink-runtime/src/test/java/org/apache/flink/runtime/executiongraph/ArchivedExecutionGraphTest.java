@@ -26,7 +26,6 @@ import org.apache.flink.core.testutils.CommonTestUtils;
 import org.apache.flink.runtime.checkpoint.CheckpointRetentionPolicy;
 import org.apache.flink.runtime.checkpoint.CheckpointStatsSnapshot;
 import org.apache.flink.runtime.checkpoint.CompletedCheckpointStatsSummarySnapshot;
-import org.apache.flink.runtime.concurrent.ComponentMainThreadExecutorServiceAdapter;
 import org.apache.flink.runtime.execution.ExecutionState;
 import org.apache.flink.runtime.jobgraph.JobGraph;
 import org.apache.flink.runtime.jobgraph.JobGraphBuilder;
@@ -41,10 +40,9 @@ import org.apache.flink.runtime.scheduler.DefaultVertexParallelismStore;
 import org.apache.flink.runtime.scheduler.SchedulerBase;
 import org.apache.flink.runtime.scheduler.SchedulerTestingUtils;
 import org.apache.flink.runtime.taskmanager.TaskExecutionState;
+import org.apache.flink.runtime.testutils.DirectScheduledExecutorService;
 import org.apache.flink.runtime.util.stats.StatsSummarySnapshot;
 import org.apache.flink.streaming.util.RestartStrategyUtils;
-import org.apache.flink.testutils.TestingUtils;
-import org.apache.flink.testutils.executor.TestExecutorExtension;
 
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
@@ -57,7 +55,6 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.concurrent.ScheduledExecutorService;
 import java.util.function.Function;
 
 import static java.util.Arrays.asList;
@@ -67,8 +64,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 public class ArchivedExecutionGraphTest {
 
     @RegisterExtension
-    static final TestExecutorExtension<ScheduledExecutorService> EXECUTOR_RESOURCE =
-            TestingUtils.defaultExecutorExtension();
+    static final TestingComponentMainThreadExecutor.Extension MAIN_EXECUTOR_RESOURCE =
+            new TestingComponentMainThreadExecutor.Extension();
 
     private static ExecutionGraph runtimeGraph;
 
@@ -77,6 +74,10 @@ public class ArchivedExecutionGraphTest {
         // -------------------------------------------------------------------------------------------------------------
         // Setup
         // -------------------------------------------------------------------------------------------------------------
+
+        final MainThreadExecutionGraphTestUtils mainThreadUtils =
+                new MainThreadExecutionGraphTestUtils(
+                        MAIN_EXECUTOR_RESOURCE.getComponentMainThreadTestExecutor());
 
         JobVertexID v1ID = new JobVertexID();
         JobVertexID v2ID = new JobVertexID();
@@ -122,22 +123,25 @@ public class ArchivedExecutionGraphTest {
         SchedulerBase scheduler =
                 SchedulerTestingUtils.createScheduler(
                         jobGraph,
-                        ComponentMainThreadExecutorServiceAdapter.forMainThread(),
-                        EXECUTOR_RESOURCE.getExecutor());
+                        mainThreadUtils.getMainThreadExecutor(),
+                        new DirectScheduledExecutorService());
 
         runtimeGraph = scheduler.getExecutionGraph();
 
-        scheduler.startScheduling();
-        scheduler.updateTaskExecutionState(
-                new TaskExecutionState(
-                        runtimeGraph
-                                .getAllExecutionVertices()
-                                .iterator()
-                                .next()
-                                .getCurrentExecutionAttempt()
-                                .getAttemptId(),
-                        ExecutionState.FAILED,
-                        new RuntimeException("Local failure")));
+        mainThreadUtils.execute(
+                () -> {
+                    scheduler.startScheduling();
+                    scheduler.updateTaskExecutionState(
+                            new TaskExecutionState(
+                                    runtimeGraph
+                                            .getAllExecutionVertices()
+                                            .iterator()
+                                            .next()
+                                            .getCurrentExecutionAttempt()
+                                            .getAttemptId(),
+                                    ExecutionState.FAILED,
+                                    new RuntimeException("Local failure")));
+                });
     }
 
     @Test

@@ -28,7 +28,6 @@ import org.apache.flink.runtime.blob.VoidBlobStore;
 import org.apache.flink.runtime.checkpoint.JobManagerTaskRestore;
 import org.apache.flink.runtime.checkpoint.TaskStateSnapshot;
 import org.apache.flink.runtime.client.JobExecutionException;
-import org.apache.flink.runtime.concurrent.ComponentMainThreadExecutorServiceAdapter;
 import org.apache.flink.runtime.deployment.InputGateDeploymentDescriptor;
 import org.apache.flink.runtime.deployment.TaskDeploymentDescriptor;
 import org.apache.flink.runtime.execution.ExecutionState;
@@ -145,11 +144,16 @@ class DefaultExecutionGraphDeploymentWithSmallBlobCacheSizeLimitTest
                                 .createTestingLogicalSlot();
                 JobManagerTaskRestore jobManagerTaskRestore =
                         new JobManagerTaskRestore(0, new TaskStateSnapshot());
-                final Execution execution = ev.getCurrentExecutionAttempt();
-                execution.transitionState(ExecutionState.SCHEDULED);
-                execution.registerProducedPartitions(slot.getTaskManagerLocation()).get();
-                execution.setInitialState(jobManagerTaskRestore);
-                ev.deployToSlot(slot);
+                mainThreadUtils.execute(
+                        () -> {
+                            final Execution execution = ev.getCurrentExecutionAttempt();
+                            execution.transitionState(ExecutionState.SCHEDULED);
+                            execution
+                                    .registerProducedPartitions(slot.getTaskManagerLocation())
+                                    .get();
+                            execution.setInitialState(jobManagerTaskRestore);
+                            ev.deployToSlot(slot);
+                        });
                 assertThat(ev.getExecutionState()).isEqualTo(ExecutionState.DEPLOYING);
 
                 TaskDeploymentDescriptor tdd = tdds.take();
@@ -199,7 +203,7 @@ class DefaultExecutionGraphDeploymentWithSmallBlobCacheSizeLimitTest
                         .setBlobWriter(blobWriter)
                         .build(executor);
 
-        eg.start(ComponentMainThreadExecutorServiceAdapter.forMainThread());
+        eg.start(mainThreadUtils.getMainThreadExecutor());
 
         return eg;
     }

@@ -19,12 +19,12 @@
 
 package org.apache.flink.runtime.scheduler;
 
-import org.apache.flink.runtime.concurrent.ComponentMainThreadExecutor;
-import org.apache.flink.runtime.concurrent.ComponentMainThreadExecutorServiceAdapter;
 import org.apache.flink.runtime.executiongraph.Execution;
 import org.apache.flink.runtime.executiongraph.ExecutionAttemptID;
 import org.apache.flink.runtime.executiongraph.ExecutionGraph;
 import org.apache.flink.runtime.executiongraph.ExecutionVertex;
+import org.apache.flink.runtime.executiongraph.MainThreadExecutionGraphTestUtils;
+import org.apache.flink.runtime.executiongraph.TestingComponentMainThreadExecutor;
 import org.apache.flink.runtime.executiongraph.TestingDefaultExecutionGraphBuilder;
 import org.apache.flink.runtime.io.network.partition.ResultPartitionID;
 import org.apache.flink.runtime.io.network.partition.ResultPartitionType;
@@ -36,12 +36,12 @@ import org.apache.flink.runtime.jobgraph.JobVertex;
 import org.apache.flink.runtime.scheduler.strategy.ExecutionVertexID;
 import org.apache.flink.runtime.shuffle.TestingShuffleMaster;
 import org.apache.flink.runtime.testtasks.NoOpInvokable;
-import org.apache.flink.util.ExecutorUtils;
+import org.apache.flink.runtime.testutils.DirectScheduledExecutorService;
 import org.apache.flink.util.IterableUtils;
 
-import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.RegisterExtension;
 import org.slf4j.LoggerFactory;
 
 import java.time.Duration;
@@ -49,9 +49,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
 import static org.apache.flink.runtime.util.JobVertexConnectionUtils.connectNewDataSetAsInput;
@@ -61,8 +58,14 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 /** Tests for {@link DefaultExecutionDeployer}. */
 class DefaultExecutionDeployerTest {
 
-    private ScheduledExecutorService executor;
-    private ComponentMainThreadExecutor mainThreadExecutor;
+    @RegisterExtension
+    static final TestingComponentMainThreadExecutor.Extension MAIN_EXECUTOR_RESOURCE =
+            new TestingComponentMainThreadExecutor.Extension();
+
+    private final MainThreadExecutionGraphTestUtils mainThreadUtils =
+            new MainThreadExecutionGraphTestUtils(
+                    MAIN_EXECUTOR_RESOURCE.getComponentMainThreadTestExecutor());
+
     private TestExecutionOperationsDecorator testExecutionOperations;
     private ExecutionVertexVersioner executionVertexVersioner;
     private TestExecutionSlotAllocator testExecutionSlotAllocator;
@@ -72,8 +75,6 @@ class DefaultExecutionDeployerTest {
 
     @BeforeEach
     void setUp() {
-        executor = Executors.newSingleThreadScheduledExecutor();
-        mainThreadExecutor = ComponentMainThreadExecutorServiceAdapter.forMainThread();
         testExecutionOperations =
                 new TestExecutionOperationsDecorator(
                         new ExecutionOperations() {
@@ -95,13 +96,6 @@ class DefaultExecutionDeployerTest {
         partitionRegistrationTimeout = Duration.ofMillis(5000);
     }
 
-    @AfterEach
-    void tearDown() {
-        if (executor != null) {
-            ExecutorUtils.gracefulShutdown(5, TimeUnit.SECONDS, executor);
-        }
-    }
-
     @Test
     void testDeployTasks() throws Exception {
         final JobGraph jobGraph = singleNonParallelJobVertexJobGraph();
@@ -110,8 +104,10 @@ class DefaultExecutionDeployerTest {
 
         deployTasks(executionDeployer, executionGraph);
 
-        assertThat(testExecutionOperations.getDeployedExecutions())
-                .containsExactly(getAnyExecution(executionGraph).getAttemptId());
+        mainThreadUtils.execute(
+                () ->
+                        assertThat(testExecutionOperations.getDeployedExecutions())
+                                .containsExactly(getAnyExecution(executionGraph).getAttemptId()));
     }
 
     @Test
@@ -124,14 +120,18 @@ class DefaultExecutionDeployerTest {
 
         deployTasks(executionDeployer, executionGraph);
 
-        assertThat(testExecutionOperations.getDeployedExecutions()).isEmpty();
+        mainThreadUtils.execute(
+                () -> assertThat(testExecutionOperations.getDeployedExecutions()).isEmpty());
 
-        final ExecutionAttemptID attemptId = getAnyExecution(executionGraph).getAttemptId();
+        final ExecutionAttemptID attemptId =
+                mainThreadUtils.execute(() -> getAnyExecution(executionGraph).getAttemptId());
         testExecutionSlotAllocator.completePendingRequest(attemptId);
-        assertThat(testExecutionOperations.getDeployedExecutions()).isEmpty();
+        mainThreadUtils.execute(
+                () -> assertThat(testExecutionOperations.getDeployedExecutions()).isEmpty());
 
         testExecutionSlotAllocator.completePendingRequests();
-        assertThat(testExecutionOperations.getDeployedExecutions()).hasSize(4);
+        mainThreadUtils.execute(
+                () -> assertThat(testExecutionOperations.getDeployedExecutions()).hasSize(4));
     }
 
     @Test
@@ -144,8 +144,10 @@ class DefaultExecutionDeployerTest {
         final ExecutionDeployer executionDeployer = createExecutionDeployer();
         deployTasks(executionDeployer, executionGraph);
 
-        assertThat(testExecutionOperations.getFailedExecutions())
-                .containsExactly(getAnyExecution(executionGraph).getAttemptId());
+        mainThreadUtils.execute(
+                () ->
+                        assertThat(testExecutionOperations.getFailedExecutions())
+                                .containsExactly(getAnyExecution(executionGraph).getAttemptId()));
     }
 
     @Test
@@ -160,10 +162,14 @@ class DefaultExecutionDeployerTest {
 
         assertThat(testExecutionSlotAllocator.getPendingRequests()).hasSize(2);
 
-        final ExecutionAttemptID attemptId = getAnyExecution(executionGraph).getAttemptId();
+        final ExecutionAttemptID attemptId =
+                mainThreadUtils.execute(() -> getAnyExecution(executionGraph).getAttemptId());
         testExecutionSlotAllocator.timeoutPendingRequest(attemptId);
 
-        assertThat(testExecutionOperations.getFailedExecutions()).containsExactly(attemptId);
+        mainThreadUtils.execute(
+                () ->
+                        assertThat(testExecutionOperations.getFailedExecutions())
+                                .containsExactly(attemptId));
     }
 
     @Test
@@ -176,12 +182,14 @@ class DefaultExecutionDeployerTest {
         final ExecutionDeployer executionDeployer = createExecutionDeployer();
         deployTasks(executionDeployer, executionGraph);
 
-        final ExecutionAttemptID attemptId = getAnyExecution(executionGraph).getAttemptId();
+        final ExecutionAttemptID attemptId =
+                mainThreadUtils.execute(() -> getAnyExecution(executionGraph).getAttemptId());
 
         executionVertexVersioner.recordModification(attemptId.getExecutionVertexId());
         testExecutionSlotAllocator.completePendingRequests();
 
-        assertThat(testExecutionOperations.getDeployedVertices()).isEmpty();
+        mainThreadUtils.execute(
+                () -> assertThat(testExecutionOperations.getDeployedVertices()).isEmpty());
     }
 
     @Test
@@ -194,7 +202,8 @@ class DefaultExecutionDeployerTest {
         final ExecutionDeployer executionDeployer = createExecutionDeployer();
         deployTasks(executionDeployer, executionGraph);
 
-        final ExecutionAttemptID attemptId = getAnyExecution(executionGraph).getAttemptId();
+        final ExecutionAttemptID attemptId =
+                mainThreadUtils.execute(() -> getAnyExecution(executionGraph).getAttemptId());
 
         executionVertexVersioner.recordModification(attemptId.getExecutionVertexId());
         testExecutionSlotAllocator.completePendingRequests();
@@ -212,9 +221,14 @@ class DefaultExecutionDeployerTest {
         deployTasks(executionDeployer, executionGraph);
 
         // The deploying of a non-CREATED vertex will result in IllegalStateException
-        assertThatThrownBy(() -> deployTasks(executionDeployer, executionGraph))
-                .as("IllegalStateException should happen")
-                .isInstanceOf(IllegalStateException.class);
+        mainThreadUtils.execute(
+                () ->
+                        assertThatThrownBy(
+                                        () ->
+                                                deployTasksOnMainThread(
+                                                        executionDeployer, executionGraph))
+                                .as("IllegalStateException should happen")
+                                .isInstanceOf(IllegalStateException.class));
     }
 
     @Test
@@ -235,12 +249,18 @@ class DefaultExecutionDeployerTest {
 
         deployTasks(executionDeployer, executionGraph);
 
-        assertThat(trackedPartitions).isEmpty();
-        assertThat(testExecutionOperations.getDeployedExecutions()).isEmpty();
+        mainThreadUtils.execute(
+                () -> {
+                    assertThat(trackedPartitions).isEmpty();
+                    assertThat(testExecutionOperations.getDeployedExecutions()).isEmpty();
+                });
 
         shuffleMaster.completeAllPendingRegistrations();
-        assertThat(trackedPartitions).hasSize(1);
-        assertThat(testExecutionOperations.getDeployedExecutions()).hasSize(2);
+        mainThreadUtils.execute(
+                () -> {
+                    assertThat(trackedPartitions).hasSize(1);
+                    assertThat(testExecutionOperations.getDeployedExecutions()).hasSize(2);
+                });
     }
 
     @Test
@@ -253,10 +273,12 @@ class DefaultExecutionDeployerTest {
 
         deployTasks(executionDeployer, executionGraph);
 
-        assertThat(testExecutionOperations.getFailedExecutions()).isEmpty();
+        mainThreadUtils.execute(
+                () -> assertThat(testExecutionOperations.getFailedExecutions()).isEmpty());
 
         shuffleMaster.failAllPendingRegistrations();
-        assertThat(testExecutionOperations.getFailedExecutions()).hasSize(1);
+        mainThreadUtils.execute(
+                () -> assertThat(testExecutionOperations.getFailedExecutions()).hasSize(1));
     }
 
     @Test
@@ -269,34 +291,23 @@ class DefaultExecutionDeployerTest {
 
         deployTasks(executionDeployer, executionGraph);
 
-        assertThat(testExecutionOperations.getFailedExecutions()).hasSize(1);
+        mainThreadUtils.execute(
+                () -> assertThat(testExecutionOperations.getFailedExecutions()).hasSize(1));
     }
 
     @Test
     void testProducedPartitionRegistrationTimeout() throws Exception {
-        ScheduledExecutorService scheduledExecutorService = null;
-        try {
-            partitionRegistrationTimeout = Duration.ofMillis(1);
+        partitionRegistrationTimeout = Duration.ofMillis(1);
 
-            scheduledExecutorService = Executors.newSingleThreadScheduledExecutor();
-            mainThreadExecutor =
-                    ComponentMainThreadExecutorServiceAdapter.forSingleThreadExecutor(
-                            scheduledExecutorService);
+        shuffleMaster.setAutoCompleteRegistration(false);
 
-            shuffleMaster.setAutoCompleteRegistration(false);
+        final JobGraph jobGraph = nonParallelSourceSinkJobGraph();
+        final ExecutionGraph executionGraph = createExecutionGraph(jobGraph);
+        final ExecutionDeployer executionDeployer = createExecutionDeployer();
 
-            final JobGraph jobGraph = nonParallelSourceSinkJobGraph();
-            final ExecutionGraph executionGraph = createExecutionGraph(jobGraph);
-            final ExecutionDeployer executionDeployer = createExecutionDeployer();
+        deployTasks(executionDeployer, executionGraph);
 
-            deployTasks(executionDeployer, executionGraph);
-
-            testExecutionOperations.awaitFailedExecutions(1);
-        } finally {
-            if (scheduledExecutorService != null) {
-                scheduledExecutorService.shutdown();
-            }
-        }
+        testExecutionOperations.awaitFailedExecutions(1);
     }
 
     private static JobGraph singleNonParallelJobVertexJobGraph() {
@@ -329,10 +340,11 @@ class DefaultExecutionDeployerTest {
                         .setJobGraph(jobGraph)
                         .setShuffleMaster(shuffleMaster)
                         .setPartitionTracker(partitionTracker)
-                        .build(executor);
+                        .build(new DirectScheduledExecutorService());
 
         executionGraph.setInternalTaskFailuresListener(new TestingInternalFailuresListener());
-        executionGraph.start(ComponentMainThreadExecutorServiceAdapter.forMainThread());
+        mainThreadUtils.execute(
+                () -> executionGraph.start(mainThreadUtils.getMainThreadExecutor()));
 
         return executionGraph;
     }
@@ -346,18 +358,31 @@ class DefaultExecutionDeployerTest {
                         executionVertexVersioner,
                         partitionRegistrationTimeout,
                         (ignored1, ignored2) -> {},
-                        mainThreadExecutor);
+                        mainThreadUtils.getMainThreadExecutor());
     }
 
     private void deployTasks(ExecutionDeployer executionDeployer, ExecutionGraph executionGraph) {
-        deployTasks(
-                executionDeployer,
-                IterableUtils.toStream(executionGraph.getAllExecutionVertices())
-                        .map(ExecutionVertex::getCurrentExecutionAttempt)
-                        .collect(Collectors.toList()));
+        mainThreadUtils.execute(
+                () -> {
+                    List<Execution> executions =
+                            IterableUtils.toStream(executionGraph.getAllExecutionVertices())
+                                    .map(ExecutionVertex::getCurrentExecutionAttempt)
+                                    .collect(Collectors.toList());
+                    deployTasksOnMainThread(executionDeployer, executions);
+                });
     }
 
-    private void deployTasks(ExecutionDeployer executionDeployer, List<Execution> executions) {
+    private void deployTasksOnMainThread(
+            ExecutionDeployer executionDeployer, ExecutionGraph executionGraph) {
+        List<Execution> executions =
+                IterableUtils.toStream(executionGraph.getAllExecutionVertices())
+                        .map(ExecutionVertex::getCurrentExecutionAttempt)
+                        .collect(Collectors.toList());
+        deployTasksOnMainThread(executionDeployer, executions);
+    }
+
+    private void deployTasksOnMainThread(
+            ExecutionDeployer executionDeployer, List<Execution> executions) {
         final Set<ExecutionVertexID> executionVertexIds =
                 executions.stream()
                         .map(Execution::getAttemptId)

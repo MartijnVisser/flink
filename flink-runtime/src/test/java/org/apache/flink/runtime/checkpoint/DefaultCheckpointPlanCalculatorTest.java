@@ -19,7 +19,6 @@
 package org.apache.flink.runtime.checkpoint;
 
 import org.apache.flink.runtime.checkpoint.CheckpointCoordinatorTestingUtils.CheckpointExecutionGraphBuilder;
-import org.apache.flink.runtime.concurrent.ComponentMainThreadExecutorServiceAdapter;
 import org.apache.flink.runtime.execution.ExecutionState;
 import org.apache.flink.runtime.executiongraph.Execution;
 import org.apache.flink.runtime.executiongraph.ExecutionGraph;
@@ -27,13 +26,14 @@ import org.apache.flink.runtime.executiongraph.ExecutionGraphCheckpointPlanCalcu
 import org.apache.flink.runtime.executiongraph.ExecutionGraphTestUtils;
 import org.apache.flink.runtime.executiongraph.ExecutionJobVertex;
 import org.apache.flink.runtime.executiongraph.ExecutionVertex;
+import org.apache.flink.runtime.executiongraph.MainThreadExecutionGraphTestUtils;
+import org.apache.flink.runtime.executiongraph.TestingComponentMainThreadExecutor;
 import org.apache.flink.runtime.io.network.partition.ResultPartitionType;
 import org.apache.flink.runtime.jobgraph.DistributionPattern;
 import org.apache.flink.runtime.jobgraph.JobVertex;
 import org.apache.flink.runtime.jobgraph.JobVertexID;
 import org.apache.flink.runtime.testtasks.NoOpInvokable;
-import org.apache.flink.testutils.TestingUtils;
-import org.apache.flink.testutils.executor.TestExecutorExtension;
+import org.apache.flink.runtime.testutils.DirectScheduledExecutorService;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.RegisterExtension;
@@ -48,7 +48,6 @@ import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ExecutionException;
-import java.util.concurrent.ScheduledExecutorService;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
@@ -66,8 +65,12 @@ import static org.assertj.core.api.Assertions.assertThat;
 class DefaultCheckpointPlanCalculatorTest {
 
     @RegisterExtension
-    static final TestExecutorExtension<ScheduledExecutorService> EXECUTOR_EXTENSION =
-            TestingUtils.defaultExecutorExtension();
+    static final TestingComponentMainThreadExecutor.Extension MAIN_EXECUTOR_RESOURCE =
+            new TestingComponentMainThreadExecutor.Extension();
+
+    private final MainThreadExecutionGraphTestUtils mainThreadUtils =
+            new MainThreadExecutionGraphTestUtils(
+                    MAIN_EXECUTOR_RESOURCE.getComponentMainThreadTestExecutor());
 
     @Test
     void testComputeAllRunningGraph() throws Exception {
@@ -173,16 +176,23 @@ class DefaultCheckpointPlanCalculatorTest {
             JobVertexID notRunningVertex = new JobVertexID();
 
             ExecutionGraph graph =
-                    new CheckpointExecutionGraphBuilder()
-                            .addJobVertex(runningVertex, isRunningVertexSource)
-                            .addJobVertex(notRunningVertex, isNotRunningVertexSource)
-                            .setTransitToRunning(false)
-                            .build(EXECUTOR_EXTENSION.getExecutor());
+                    mainThreadUtils.execute(
+                            () ->
+                                    new CheckpointExecutionGraphBuilder()
+                                            .addJobVertex(runningVertex, isRunningVertexSource)
+                                            .addJobVertex(
+                                                    notRunningVertex, isNotRunningVertexSource)
+                                            .setTransitToRunning(false)
+                                            .setMainThreadExecutor(
+                                                    mainThreadUtils.getMainThreadExecutor())
+                                            .build(new DirectScheduledExecutorService()));
 
             // The first vertex is always RUNNING.
-            transitVertexToState(graph, runningVertex, ExecutionState.RUNNING);
+            mainThreadUtils.execute(
+                    () -> transitVertexToState(graph, runningVertex, ExecutionState.RUNNING));
             // The second vertex is everything except RUNNING.
-            transitVertexToState(graph, notRunningVertex, notRunningState);
+            mainThreadUtils.execute(
+                    () -> transitVertexToState(graph, notRunningVertex, notRunningState));
 
             DefaultCheckpointPlanCalculator checkpointPlanCalculator =
                     createCheckpointPlanCalculator(graph);
@@ -306,28 +316,32 @@ class DefaultCheckpointPlanCalculatorTest {
 
         ExecutionGraph graph =
                 ExecutionGraphTestUtils.createExecutionGraph(
-                        EXECUTOR_EXTENSION.getExecutor(), jobVertices);
-        graph.start(ComponentMainThreadExecutorServiceAdapter.forMainThread());
-        graph.transitionToRunning();
-        graph.getAllExecutionVertices()
-                .forEach(
-                        task ->
-                                task.getCurrentExecutionAttempt()
-                                        .transitionState(ExecutionState.RUNNING));
+                        new DirectScheduledExecutorService(), jobVertices);
 
-        for (int i = 0; i < vertexDeclarations.size(); ++i) {
-            JobVertexID jobVertexId = jobVertices[i].getID();
-            vertexDeclarations
-                    .get(i)
-                    .finishedSubtaskIndices
-                    .forEach(
-                            index -> {
-                                graph.getJobVertex(jobVertexId)
-                                        .getTaskVertices()[index]
-                                        .getCurrentExecutionAttempt()
-                                        .markFinished();
-                            });
-        }
+        mainThreadUtils.execute(
+                () -> {
+                    graph.start(mainThreadUtils.getMainThreadExecutor());
+                    graph.transitionToRunning();
+                    graph.getAllExecutionVertices()
+                            .forEach(
+                                    task ->
+                                            task.getCurrentExecutionAttempt()
+                                                    .transitionState(ExecutionState.RUNNING));
+
+                    for (int i = 0; i < vertexDeclarations.size(); ++i) {
+                        JobVertexID jobVertexId = jobVertices[i].getID();
+                        vertexDeclarations
+                                .get(i)
+                                .finishedSubtaskIndices
+                                .forEach(
+                                        index -> {
+                                            graph.getJobVertex(jobVertexId)
+                                                    .getTaskVertices()[index]
+                                                    .getCurrentExecutionAttempt()
+                                                    .markFinished();
+                                        });
+                    }
+                });
 
         return graph;
     }
