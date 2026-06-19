@@ -23,6 +23,7 @@ import org.apache.flink.api.common.typeutils.base.LongSerializer;
 import org.apache.flink.table.data.RowData;
 import org.apache.flink.table.runtime.generated.GeneratedNamespaceAggsHandleFunction;
 import org.apache.flink.table.runtime.operators.aggregate.window.buffers.WindowBuffer;
+import org.apache.flink.table.runtime.operators.window.Flink39481Diag;
 import org.apache.flink.table.runtime.operators.window.MergeCallback;
 import org.apache.flink.table.runtime.operators.window.tvf.common.WindowTimerService;
 import org.apache.flink.table.runtime.operators.window.tvf.slicing.SliceAssigner;
@@ -106,6 +107,15 @@ public abstract class AbstractSliceSyncStateWindowAggProcessor
             long lastWindowEnd = sliceAssigner.getLastWindowEnd(sliceEnd);
             if (isWindowFired(lastWindowEnd, currentProgress, shiftTimeZone)) {
                 // the last window has been triggered, so the element can be dropped now
+                // FLINK-39481 diagnostic: late element DROPPED (its last window already fired).
+                // Catches in-flight/replayed trailing-slice elements dropped as late after restore.
+                if (Flink39481Diag.on()) {
+                    Flink39481Diag.log(
+                            "AbstractSliceSyncStateWindowAggProcessor.processElement DROP sliceEnd={} lastWindowEnd={} currentProgress={}",
+                            sliceEnd,
+                            lastWindowEnd,
+                            currentProgress);
+                }
                 return true;
             } else {
                 windowBuffer.addElement(key, sliceStateMergeTarget(sliceEnd), element);
@@ -116,11 +126,24 @@ public abstract class AbstractSliceSyncStateWindowAggProcessor
                     unfiredFirstWindow += windowInterval;
                 }
                 windowTimerService.registerEventTimeWindowTimer(unfiredFirstWindow);
+                // FLINK-39481 diagnostic: late element KEPT (slice fired, but a later window of the
+                // family is still unfired); registers a timer for the next unfired window.
+                if (Flink39481Diag.on()) {
+                    Flink39481Diag.log(
+                            "AbstractSliceSyncStateWindowAggProcessor.processElement LATE-BUT-KEPT sliceEnd={} lastWindowEnd={} currentProgress={} registeredTimer={}",
+                            sliceEnd,
+                            lastWindowEnd,
+                            currentProgress,
+                            unfiredFirstWindow);
+                }
                 return false;
             }
         } else {
             // the assigned slice hasn't been triggered, accumulate into the assigned slice
             windowBuffer.addElement(key, sliceEnd, element);
+            // FLINK-39481 diagnostic: on-time ACCUMULATE is intentionally NOT logged - it is the
+            // hottest per-element path and pure noise; only the DROP / LATE-BUT-KEPT branches above
+            // (which is where a replayed trailing-slice element would be lost) are traced.
             return false;
         }
     }
