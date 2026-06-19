@@ -30,6 +30,7 @@ import org.apache.flink.runtime.state.FunctionInitializationContext;
 import org.apache.flink.runtime.state.FunctionSnapshotContext;
 import org.apache.flink.streaming.api.checkpoint.CheckpointedFunction;
 import org.apache.flink.streaming.api.functions.source.legacy.SourceFunction;
+import org.apache.flink.table.runtime.operators.window.Flink39481Diag;
 import org.apache.flink.util.Preconditions;
 
 import java.io.ByteArrayInputStream;
@@ -162,6 +163,18 @@ public class FailingCollectionSource<T>
             this.numElementsEmitted = this.numElementsToSkip;
         }
 
+        // FLINK-39481 diagnostic: on restore, the replay position (elements skipped == resumed from)
+        // and the remaining replay range. Avoids per-element logging to minimise perturbation.
+        if (numElementsToSkip > 0) {
+            Flink39481Diag.log(
+                    "FailingCollectionSource.run RESTORE numElementsToSkip={} resumedFrom={} replayRange=[{}..{}) totalElements={}",
+                    numElementsToSkip,
+                    numElementsEmitted,
+                    numElementsEmitted,
+                    numElements,
+                    numElements);
+        }
+
         while (isRunning && numElementsEmitted < numElements) {
             if (!failedBefore) {
                 // delay a bit, if we have not failed before
@@ -170,6 +183,13 @@ public class FailingCollectionSource<T>
                     // cause a failure if we have not failed before and have a completed checkpoint
                     // and have processed at least one element
                     failedBefore = true;
+                    // FLINK-39481 diagnostic: the artificial-failure trigger point (element index).
+                    Flink39481Diag.log(
+                            "FailingCollectionSource.run ARTIFICIAL-FAILURE numElementsEmitted={} lastCheckpointedEmittedNum={} numSuccessfulCheckpoints={} totalElements={}",
+                            numElementsEmitted,
+                            lastCheckpointedEmittedNum,
+                            numSuccessfulCheckpoints,
+                            numElements);
                     throw new Exception("Artificial Failure");
                 }
             }

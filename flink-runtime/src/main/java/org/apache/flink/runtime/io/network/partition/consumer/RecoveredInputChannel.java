@@ -58,6 +58,15 @@ public abstract class RecoveredInputChannel extends InputChannel implements Chan
 
     private static final Logger LOG = LoggerFactory.getLogger(RecoveredInputChannel.class);
 
+    // FLINK-39481 TEMPORARY diagnostic logger (DO NOT MERGE). Same logger name as
+    // Flink39481Diag in flink-table-runtime so a single log4j line enables everything.
+    private static final org.slf4j.Logger F39481 =
+            org.slf4j.LoggerFactory.getLogger("org.apache.flink.FLINK39481");
+
+    // FLINK-39481 diagnostic counters for recovered in-flight channel state.
+    private long f39481RecoveredBuffers = 0;
+    private long f39481RecoveredBytes = 0;
+
     private final ArrayDeque<Buffer> receivedBuffers = new ArrayDeque<>();
     private final CompletableFuture<?> stateConsumedFuture = new CompletableFuture<>();
     protected final BufferManager bufferManager;
@@ -131,6 +140,22 @@ public abstract class RecoveredInputChannel extends InputChannel implements Chan
             receivedBuffers.clear();
         }
 
+        // FLINK-39481 diagnostic: transition from recovered channel to real input channel.
+        // remainingBuffers are filtered-but-not-yet-consumed in-flight buffers migrated to the
+        // physical channel; this shows whether UC in-flight state survived to the real channel.
+        if (F39481.isDebugEnabled()) {
+            F39481.debug(
+                    "FLINK39481 RecoveredInputChannel.toInputChannel task={} channelInfo={} channelIndex={} remainingMigratedBuffers={} totalRecoveredDataBuffers={} totalRecoveredBytes={} stateConsumed={} ckptDuringRecovery={}",
+                    inputGate.getOwningTaskName(),
+                    channelInfo,
+                    getChannelIndex(),
+                    remainingBuffers.size(),
+                    f39481RecoveredBuffers,
+                    f39481RecoveredBytes,
+                    stateConsumedFuture.isDone(),
+                    inputGate.isCheckpointingDuringRecoveryEnabled());
+        }
+
         final InputChannel inputChannel = toInputChannelInternal(remainingBuffers);
         inputChannel.checkpointStopped(lastStoppedCheckpointId);
         return inputChannel;
@@ -181,6 +206,10 @@ public abstract class RecoveredInputChannel extends InputChannel implements Chan
                     wasEmpty = receivedBuffers.isEmpty();
                     receivedBuffers.add(buffer);
                     recycleBuffer = false;
+                    if (F39481.isDebugEnabled() && buffer.isBuffer()) {
+                        f39481RecoveredBuffers++;
+                        f39481RecoveredBytes += buffer.getSize();
+                    }
                 }
             }
 
@@ -213,6 +242,17 @@ public abstract class RecoveredInputChannel extends InputChannel implements Chan
         }
         bufferManager.releaseFloatingBuffers();
         LOG.debug("{}/{} finished recovering input.", inputGate.getOwningTaskName(), channelInfo);
+        // FLINK-39481 diagnostic: in-flight channel-state recovery finished (buffers filtered).
+        if (F39481.isDebugEnabled()) {
+            F39481.debug(
+                    "FLINK39481 RecoveredInputChannel.finishReadRecoveredState task={} channelInfo={} channelIndex={} recoveredDataBuffers={} recoveredBytes={} queued={}",
+                    inputGate.getOwningTaskName(),
+                    channelInfo,
+                    getChannelIndex(),
+                    f39481RecoveredBuffers,
+                    f39481RecoveredBytes,
+                    getNumberOfQueuedBuffers());
+        }
     }
 
     @Nullable

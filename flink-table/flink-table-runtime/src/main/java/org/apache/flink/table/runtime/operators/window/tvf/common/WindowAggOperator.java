@@ -43,6 +43,7 @@ import org.apache.flink.streaming.api.watermark.Watermark;
 import org.apache.flink.streaming.runtime.streamrecord.StreamRecord;
 import org.apache.flink.table.data.RowData;
 import org.apache.flink.table.runtime.operators.TableStreamOperator;
+import org.apache.flink.table.runtime.operators.window.Flink39481Diag;
 import org.apache.flink.table.runtime.operators.window.tvf.slicing.SlicingSyncStateWindowProcessor;
 import org.apache.flink.table.runtime.operators.window.tvf.unslicing.UnslicingSyncStateWindowProcessor;
 
@@ -148,6 +149,11 @@ public final class WindowAggOperator<K, W> extends TableStreamOperator<RowData>
         // Restore the watermark of timerService to prevent expired data from being treated as
         // not expired when flushWindowBuffer is executed.
         internalTimerService.initializeWatermark(currentWatermark);
+        // FLINK-39481 diagnostic: watermark value the timer service was initialized with on open.
+        Flink39481Diag.log(
+                "WindowAggOperator.open initializeWatermark currentWatermark={} timerServiceWatermark={}",
+                currentWatermark,
+                internalTimerService.currentWatermark());
         windowProcessor.open(
                 new WindowProcessorSyncStateContext<>(
                         getContainingTask(),
@@ -189,13 +195,31 @@ public final class WindowAggOperator<K, W> extends TableStreamOperator<RowData>
             Iterable<Long> watermarks = watermarkState.get();
             if (watermarks != null) {
                 long minWatermark = Long.MAX_VALUE;
+                StringBuilder f39481Restored = Flink39481Diag.on() ? new StringBuilder() : null;
                 for (Long watermark : watermarks) {
                     minWatermark = Math.min(watermark, minWatermark);
+                    if (f39481Restored != null) {
+                        f39481Restored.append(watermark).append(',');
+                    }
                 }
                 if (minWatermark != Long.MAX_VALUE) {
                     this.currentWatermark = minWatermark;
                 }
+                // FLINK-39481 diagnostic: restored union-list watermarks + chosen min.
+                Flink39481Diag.log(
+                        "WindowAggOperator.initializeState restored=true unionListWatermarks=[{}] chosenMin={} currentWatermark={}",
+                        f39481Restored == null ? "<disabled>" : f39481Restored.toString(),
+                        minWatermark,
+                        currentWatermark);
+            } else {
+                Flink39481Diag.log(
+                        "WindowAggOperator.initializeState restored=true unionListWatermarks=null currentWatermark={}",
+                        currentWatermark);
             }
+        } else {
+            Flink39481Diag.log(
+                    "WindowAggOperator.initializeState restored=false currentWatermark={}",
+                    currentWatermark);
         }
     }
 
@@ -203,6 +227,11 @@ public final class WindowAggOperator<K, W> extends TableStreamOperator<RowData>
     public void snapshotState(StateSnapshotContext context) throws Exception {
         super.snapshotState(context);
         this.watermarkState.update(Collections.singletonList(currentWatermark));
+        // FLINK-39481 diagnostic: the watermark value persisted into the union-list state.
+        Flink39481Diag.log(
+                "WindowAggOperator.snapshotState checkpointId={} persistedCurrentWatermark={}",
+                context.getCheckpointId(),
+                currentWatermark);
     }
 
     @Override
@@ -225,6 +254,19 @@ public final class WindowAggOperator<K, W> extends TableStreamOperator<RowData>
 
     @Override
     public void processWatermark(Watermark mark) throws Exception {
+        // FLINK-39481 diagnostic: incoming watermark vs current; flag the end-of-input MAX mark
+        // that fires the trailing window family.
+        if (Flink39481Diag.on()) {
+            boolean isMax =
+                    mark.getTimestamp() == Long.MAX_VALUE
+                            || mark.getTimestamp() == Watermark.MAX_WATERMARK.getTimestamp();
+            Flink39481Diag.log(
+                    "WindowAggOperator.processWatermark mark={} currentWatermark={} advances={} isMaxWatermark={}",
+                    mark.getTimestamp(),
+                    currentWatermark,
+                    mark.getTimestamp() > currentWatermark,
+                    isMax);
+        }
         if (mark.getTimestamp() > currentWatermark) {
             // If this is a proctime window, progress should not be advanced by watermark, or it'll
             // disturb timer-based processing
@@ -258,6 +300,12 @@ public final class WindowAggOperator<K, W> extends TableStreamOperator<RowData>
     private void onTimer(InternalTimer<K, W> timer) throws Exception {
         setCurrentKey(timer.getKey());
         W window = timer.getNamespace();
+        // FLINK-39481 diagnostic: window fired by a timer + its timestamp.
+        Flink39481Diag.log(
+                "WindowAggOperator.onTimer fireWindow timestamp={} window={} currentWatermark={}",
+                timer.getTimestamp(),
+                window,
+                currentWatermark);
         windowProcessor.fireWindow(timer.getTimestamp(), window);
         windowProcessor.clearWindow(timer.getTimestamp(), window);
         // we don't need to clear window timers,

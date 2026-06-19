@@ -22,6 +22,7 @@ import org.apache.flink.api.common.typeutils.TypeSerializer;
 import org.apache.flink.table.data.RowData;
 import org.apache.flink.table.runtime.generated.GeneratedNamespaceAggsHandleFunction;
 import org.apache.flink.table.runtime.operators.aggregate.window.buffers.WindowBuffer;
+import org.apache.flink.table.runtime.operators.window.Flink39481Diag;
 import org.apache.flink.table.runtime.operators.window.MergeCallback;
 import org.apache.flink.table.runtime.operators.window.tvf.slicing.SliceSharedAssigner;
 
@@ -66,7 +67,8 @@ public final class SliceSharedSyncStateWindowAggProcessor
         sliceSharedAssigner.mergeSlices(windowEnd, this);
         // we have set accumulator in the merge() method
         RowData aggResult = aggregator.getValue(windowEnd);
-        if (!emptySupplier.get()) {
+        boolean emitted = !emptySupplier.get();
+        if (emitted) {
             // if the triggered window is an empty window, we shouldn't emit it
             collect(aggResult);
         }
@@ -82,6 +84,19 @@ public final class SliceSharedSyncStateWindowAggProcessor
             } else {
                 windowTimerService.registerProcessingTimeWindowTimer(nextWindowEnd);
             }
+            // FLINK-39481 diagnostic: window fired + result emitted/suppressed + next-window timer
+            // (the chain link that carries the window family forward to the trailing window).
+            Flink39481Diag.log(
+                    "SliceSharedSyncStateWindowAggProcessor.fireWindow windowEnd={} result={} nextWindowTimer={}",
+                    windowEnd,
+                    emitted ? "EMITTED" : "SUPPRESSED-EMPTY",
+                    nextWindowEnd);
+        } else {
+            // FLINK-39481 diagnostic: window fired with no next-window timer (chain terminates).
+            Flink39481Diag.log(
+                    "SliceSharedSyncStateWindowAggProcessor.fireWindow windowEnd={} result={} nextWindowTimer=NONE",
+                    windowEnd,
+                    emitted ? "EMITTED" : "SUPPRESSED-EMPTY");
         }
     }
 
