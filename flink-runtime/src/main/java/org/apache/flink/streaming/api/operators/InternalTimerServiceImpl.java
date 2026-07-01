@@ -343,6 +343,17 @@ public class InternalTimerServiceImpl<K, N> implements InternalTimerService<N> {
             // and prevent a potential starvation.
             interrupted = shouldStopAdvancingFn.test();
         }
+        // FLINK-39481 TEMPORARY diagnostic (DO NOT MERGE): an interrupted firing chain is the
+        // vulnerable state (watermark already advanced, timers <= watermark still pending);
+        // a checkpoint snapshot taken now persists the optimistic watermark.
+        if (interrupted) {
+            InternalTimer<K, N> next = eventTimeTimersQueue.peek();
+            org.slf4j.LoggerFactory.getLogger("org.apache.flink.FLINK39481")
+                    .debug(
+                            "FLINK39481 tryAdvanceWatermark INTERRUPTED watermark={} nextPendingTimer={}",
+                            time,
+                            next == null ? "NONE" : next.getTimestamp());
+        }
         return !interrupted;
     }
 

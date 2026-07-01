@@ -398,6 +398,13 @@ public abstract class AbstractStreamOperator<OUT>
             this.watermarkProcessor =
                     new MailboxWatermarkProcessor(
                             output, mailboxExecutor, getTimeServiceManager().get());
+            // FLINK-39481 TEMPORARY diagnostic (DO NOT MERGE): map processor instance -> operator.
+            org.slf4j.LoggerFactory.getLogger("org.apache.flink.FLINK39481")
+                    .debug(
+                            "FLINK39481 MailboxWatermarkProcessor@{} WIRED operator={} name={}",
+                            System.identityHashCode(this.watermarkProcessor),
+                            getClass().getSimpleName(),
+                            getOperatorName());
         }
     }
 

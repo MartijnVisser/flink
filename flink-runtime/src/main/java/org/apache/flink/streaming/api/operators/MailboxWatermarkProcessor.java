@@ -72,9 +72,22 @@ public class MailboxWatermarkProcessor<OUT> {
         // Try to progress min watermark as far as we can.
         if (internalTimeServiceManager.tryAdvanceWatermark(
                 maxInputWatermark, mailboxExecutor::shouldInterrupt)) {
+            // FLINK-39481 TEMPORARY diagnostic (DO NOT MERGE): watermark forwarded downstream.
+            LoggerFactory.getLogger("org.apache.flink.FLINK39481")
+                    .debug(
+                            "FLINK39481 MailboxWatermarkProcessor@{} EMIT downstream watermark={}",
+                            System.identityHashCode(this),
+                            maxInputWatermark.getTimestamp());
             // In case output watermark has fully progressed emit it downstream.
             output.emitWatermark(maxInputWatermark);
         } else if (!progressWatermarkScheduled) {
+            // FLINK-39481 TEMPORARY diagnostic (DO NOT MERGE): forwarding deferred to a
+            // deferrable mail; if the task finishes first, the watermark is never emitted.
+            LoggerFactory.getLogger("org.apache.flink.FLINK39481")
+                    .debug(
+                            "FLINK39481 MailboxWatermarkProcessor@{} DEFER watermark={}",
+                            System.identityHashCode(this),
+                            maxInputWatermark.getTimestamp());
             progressWatermarkScheduled = true;
             // We still have work to do, but we need to let other mails to be processed first.
             mailboxExecutor.execute(

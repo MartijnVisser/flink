@@ -143,6 +143,7 @@ public class TestStreamEnvironment extends StreamExecutionEnvironment {
      * org.apache.flink.runtime.testutils.MiniClusterResource#randomizeConfiguration(Configuration)}.
      */
     private static void randomizeConfiguration(MiniCluster miniCluster, Configuration conf) {
+        forceConfigurationFromEnv(conf);
         // randomize ITTests for enabling unaligned checkpoint
         if (RANDOMIZE_CHECKPOINTING_CONFIG) {
             randomize(conf, CheckpointingOptions.ENABLE_UNALIGNED, true, false);
@@ -222,6 +223,25 @@ public class TestStreamEnvironment extends StreamExecutionEnvironment {
                 ExecutionConfigOptions.SinkUpsertMaterializeStrategy.VALUE,
                 ExecutionConfigOptions.SinkUpsertMaterializeStrategy.MAP,
                 ExecutionConfigOptions.SinkUpsertMaterializeStrategy.ADAPTIVE);
+    }
+
+    /**
+     * FLINK-39481 REPRO ONLY: pre-set config options from the F39481_FORCE env var
+     * (semicolon-separated key=value pairs) so the randomize() calls below keep them. Env vars
+     * (unlike -D properties) reach the surefire fork.
+     */
+    private static void forceConfigurationFromEnv(Configuration conf) {
+        String force = System.getenv("F39481_FORCE");
+        if (force == null || force.trim().isEmpty()) {
+            return;
+        }
+        for (String pair : force.split(";")) {
+            String[] kv = pair.split("=", 2);
+            if (kv.length == 2 && !kv[0].trim().isEmpty()) {
+                conf.setString(kv[0].trim(), kv[1].trim());
+            }
+        }
+        System.out.println("FLINK39481-FORCED: " + force);
     }
 
     /**
