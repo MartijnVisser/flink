@@ -427,7 +427,7 @@ class WatermarkOutputMultiplexerTest {
     }
 
     @Test
-    void testNotEmittingIdleAfterAllSplitsRemoved() {
+    void testEmittingIdleAfterAllSplitsRemoved() {
         final TestingWatermarkOutput underlyingWatermarkOutput = createTestingWatermarkOutput();
         final WatermarkOutputMultiplexer multiplexer =
                 new WatermarkOutputMultiplexer(underlyingWatermarkOutput);
@@ -441,7 +441,7 @@ class WatermarkOutputMultiplexerTest {
 
         multiplexer.onPeriodicEmit();
         assertThat(underlyingWatermarkOutput.lastWatermark()).isEqualTo(emittedWatermark);
-        assertThat(underlyingWatermarkOutput.isIdle()).isFalse();
+        assertThat(underlyingWatermarkOutput.isIdle()).isTrue();
     }
 
     /**

@@ -73,6 +73,14 @@ public class WatermarkOutputMultiplexer {
     private final CombinedWatermarkStatus combinedWatermarkStatus;
 
     /**
+     * Tracks whether the last signal forwarded to the underlying output was {@link
+     * WatermarkOutput#markIdle()}, so that idleness is announced once per transition instead of on
+     * every periodic emit. Emitting a watermark implicitly re-activates the downstream stream
+     * status, so it resets this flag.
+     */
+    private boolean underlyingOutputIsIdle;
+
+    /**
      * Creates a new {@link WatermarkOutputMultiplexer} that emits combined updates to the given
      * {@link WatermarkOutput}.
      */
@@ -106,6 +114,12 @@ public class WatermarkOutputMultiplexer {
         final PartialWatermark output = watermarkPerOutputId.remove(id);
         if (output != null) {
             combinedWatermarkStatus.remove(output);
+            // Removing the last output turns the combined status idle; propagate this immediately,
+            // otherwise the last emitted watermark would permanently cap downstream progress
+            // (FLINK-39586).
+            if (watermarkPerOutputId.isEmpty()) {
+                updateCombinedWatermark();
+            }
             return true;
         } else {
             return false;
@@ -156,11 +170,13 @@ public class WatermarkOutputMultiplexer {
      */
     private void updateCombinedWatermark() {
         if (combinedWatermarkStatus.updateCombinedWatermark()) {
+            underlyingOutputIsIdle = false;
             underlyingOutput.emitWatermark(
                     new Watermark(combinedWatermarkStatus.getCombinedWatermark()));
         }
-        if (combinedWatermarkStatus.isIdle()) {
+        if (combinedWatermarkStatus.isIdle() && !underlyingOutputIsIdle) {
             underlyingOutput.markIdle();
+            underlyingOutputIsIdle = true;
         }
     }
 

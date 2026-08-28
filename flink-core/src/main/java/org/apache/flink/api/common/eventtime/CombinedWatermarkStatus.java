@@ -47,7 +47,16 @@ final class CombinedWatermarkStatus {
     }
 
     public boolean remove(PartialWatermark o) {
-        return partialWatermarks.remove(o);
+        final boolean removed = partialWatermarks.remove(o);
+        // Removing the last output means no active output can hold back the watermark anymore, so
+        // the combined status becomes idle. This is deliberately transition-based (triggered by the
+        // removal) and not state-based (empty set): a multiplexer that never had any outputs must
+        // stay non-idle so that a source does not announce idleness before any split was assigned
+        // (FLINK-23011).
+        if (removed && partialWatermarks.isEmpty()) {
+            idle = true;
+        }
+        return removed;
     }
 
     public void add(PartialWatermark element) {
