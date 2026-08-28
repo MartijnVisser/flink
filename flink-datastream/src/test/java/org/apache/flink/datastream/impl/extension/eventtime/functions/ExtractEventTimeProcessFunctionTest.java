@@ -169,6 +169,52 @@ public class ExtractEventTimeProcessFunctionTest {
         operatorTestHarness.close();
     }
 
+    /**
+     * Characterization test for the idleness clock of {@link ExtractEventTimeProcessFunction}.
+     *
+     * <p>The function constructs {@code WatermarksWithIdleness.IdlenessTimer} with the raw {@code
+     * processingTimeService.getClock()} (ExtractEventTimeProcessFunction:90-92). Unlike the
+     * DataStream V1 paths (e.g. {@code TimestampsAndWatermarksOperator:88-93}), that clock is never
+     * wrapped in a {@code PausableRelativeClock}, so there is no mechanism by which runtime-induced
+     * blocking (backpressure, watermark alignment) could suppress the idle timeout: the idle-status
+     * watermark {@code (idle=true)} is emitted purely on wall-clock elapse after the last record,
+     * as this test demonstrates.
+     */
+    @Test
+    void testIdleStatusEmittedPurelyOnWallClockElapse() throws Exception {
+        EventTimeWatermarkStrategy<Tuple2<Long, String>> watermarkStrategy =
+                new EventTimeWatermarkStrategy<>(
+                        (EventTimeExtractor<Tuple2<Long, String>>) event -> event.f0,
+                        EventTimeWatermarkStrategy.EventTimeWatermarkGenerateMode.PER_EVENT,
+                        Duration.ZERO,
+                        Duration.ofMillis(200),
+                        Duration.ZERO);
+        OneInputStreamOperatorTestHarness<Tuple2<Long, String>, Tuple2<Long, String>>
+                operatorTestHarness = getOperatorTestHarness(watermarkStrategy);
+
+        // process a single record; the input is active, no idle-status watermark yet
+        operatorTestHarness.processElement(new StreamRecord<>(new Tuple2<>(12345678L, "hello")));
+        checkOutputIdleStatusWatermarks(operatorTestHarness.getOutput());
+
+        // advance ONLY the processing-time clock past the idle timeout, processing no further
+        // records; each advance fires the periodic timer which runs IdlenessTimer.checkIfIdle()
+        // against the unpausable processing-time clock
+        for (int i = 0; i < 5; i++) {
+            operatorTestHarness.getProcessingTimeService().advance(200);
+        }
+
+        // idle=true was emitted on wall-clock elapse alone; nothing could have paused the clock
+        checkOutputIdleStatusWatermarks(operatorTestHarness.getOutput(), true);
+
+        // BONUS characterization (where V2 improves on V1): the idle status is explicitly
+        // cleared with an idle=false watermark as soon as the next record arrives
+        // (ExtractEventTimeProcessFunction:138-142)
+        operatorTestHarness.processElement(new StreamRecord<>(new Tuple2<>(12345679L, "hello")));
+        checkOutputIdleStatusWatermarks(operatorTestHarness.getOutput(), true, false);
+
+        operatorTestHarness.close();
+    }
+
     private OneInputStreamOperatorTestHarness<Tuple2<Long, String>, Tuple2<Long, String>>
             getOperatorTestHarness(
                     EventTimeWatermarkStrategy<Tuple2<Long, String>> watermarkStrategy)
