@@ -52,6 +52,7 @@ import org.apache.flink.streaming.api.operators.async.queue.StreamElementQueue;
 import org.apache.flink.streaming.api.watermark.Watermark;
 import org.apache.flink.streaming.runtime.streamrecord.StreamElement;
 import org.apache.flink.streaming.runtime.streamrecord.StreamRecord;
+import org.apache.flink.streaming.runtime.watermarkstatus.WatermarkStatus;
 import org.apache.flink.streaming.runtime.tasks.OneInputStreamTask;
 import org.apache.flink.streaming.runtime.tasks.OneInputStreamTaskTestHarness;
 import org.apache.flink.streaming.runtime.tasks.StreamTaskMailboxTestHarness;
@@ -428,6 +429,47 @@ public class AsyncWaitOperatorTest {
                     testHarness.getOutput(),
                     new StreamRecordComparator());
         }
+    }
+
+    /**
+     * Tests that a {@link WatermarkStatus} does not overtake a watermark that is still queued in
+     * the operator's async work queue. The operator enqueues watermarks in the ordered async queue
+     * ({@code processWatermark}), so the watermark status must be held back the same way to
+     * preserve the relative order of watermarks and watermark statuses.
+     */
+    @Test
+    void testWatermarkStatusDoesNotOvertakeQueuedWatermark() throws Exception {
+        final LazyAsyncFunction lazyAsyncFunction = new LazyAsyncFunction();
+        final OneInputStreamOperatorTestHarness<Integer, Integer> testHarness =
+                createTestHarness(
+                        lazyAsyncFunction, TIMEOUT, 4, AsyncDataStream.OutputMode.ORDERED);
+
+        final long initialTime = 0L;
+        testHarness.open();
+
+        synchronized (testHarness.getCheckpointLock()) {
+            // e1 is put into the async queue; its async result is withheld
+            testHarness.processElement(new StreamRecord<>(1, initialTime + 1));
+            // the watermark is queued behind e1
+            testHarness.processWatermark(new Watermark(initialTime + 100));
+            // the watermark status arrives after the watermark
+            testHarness.processWatermarkStatus(WatermarkStatus.IDLE);
+        }
+
+        // complete e1 and drain the queue
+        lazyAsyncFunction.countDown();
+        synchronized (testHarness.getCheckpointLock()) {
+            testHarness.endInput();
+            testHarness.close();
+        }
+
+        // CORRECT expectation: the relative order of the watermark and the watermark status is
+        // preserved, i.e. W100 (which arrived before IDLE) is emitted before IDLE
+        assertThat(testHarness.getOutput())
+                .containsExactly(
+                        new StreamRecord<>(1, initialTime + 1),
+                        new Watermark(initialTime + 100),
+                        WatermarkStatus.IDLE);
     }
 
     /** Test the AsyncWaitOperator with ordered mode and processing time. */

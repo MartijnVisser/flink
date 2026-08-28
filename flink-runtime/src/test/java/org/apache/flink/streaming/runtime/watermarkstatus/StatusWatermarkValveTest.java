@@ -568,6 +568,26 @@ class StatusWatermarkValveTest {
         assertThat(valveOutput.popLastSeenOutput()).isNull();
     }
 
+    /**
+     * Characterizes the downstream consequence of an upstream operator reordering a watermark
+     * behind a watermark status (e.g. {@code AsyncWaitOperator} enqueues watermarks in its async
+     * queue but forwards watermark statuses immediately): once the IDLE status arrives first, the
+     * valve permanently drops the late-emitted watermark, so the reordering is not benign.
+     */
+    @Test
+    void testWatermarkArrivingAfterIdleStatusIsDropped() throws Exception {
+        StatusWatermarkOutput valveOutput = new StatusWatermarkOutput();
+        StatusWatermarkValve valve = new StatusWatermarkValve(1);
+
+        // the reordered sequence produced upstream: IDLE overtook the watermark
+        valve.inputWatermarkStatus(WatermarkStatus.IDLE, 0, valveOutput);
+        assertThat(valveOutput.popLastSeenOutput()).isEqualTo(WatermarkStatus.IDLE);
+
+        valve.inputWatermark(new Watermark(100), 0, valveOutput);
+        // the watermark is dropped because the (single) channel is idle
+        assertThat(valveOutput.popLastSeenOutput()).isNull();
+    }
+
     private static class StatusWatermarkOutput implements PushingAsyncDataInput.DataOutput {
 
         private BlockingQueue<StreamElement> allOutputs = new LinkedBlockingQueue<>();
