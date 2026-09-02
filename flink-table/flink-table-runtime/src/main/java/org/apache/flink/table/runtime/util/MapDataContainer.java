@@ -14,16 +14,38 @@
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
  * See the License for the specific language governing permissions and
  * limitations under the License.
+ *
  */
 
-package org.apache.flink.state.table;
+package org.apache.flink.table.runtime.util;
 
-import org.apache.flink.annotation.Experimental;
-import org.apache.flink.api.common.typeinfo.TypeInformation;
+import org.apache.flink.annotation.Internal;
+import org.apache.flink.table.data.ArrayData;
+import org.apache.flink.table.data.MapData;
 
-/** {@link TypeInformation} factory for decoding savepoint value data. */
-@Experimental
-public interface SavepointTypeInformationFactory {
-    /** Returns {@link TypeInformation} for data deserialization. */
-    TypeInformation<?> getTypeInformation();
+/** A {@link MapData} backed directly by a key array and a value array. */
+@Internal
+public class MapDataContainer implements MapData {
+    private final ArrayData keyArray;
+    private final ArrayData valueArray;
+
+    public MapDataContainer(ArrayData keyArray, ArrayData valueArray) {
+        this.keyArray = keyArray;
+        this.valueArray = valueArray;
+    }
+
+    @Override
+    public int size() {
+        return keyArray.size();
+    }
+
+    @Override
+    public ArrayData keyArray() {
+        return keyArray;
+    }
+
+    @Override
+    public ArrayData valueArray() {
+        return valueArray;
+    }
 }
