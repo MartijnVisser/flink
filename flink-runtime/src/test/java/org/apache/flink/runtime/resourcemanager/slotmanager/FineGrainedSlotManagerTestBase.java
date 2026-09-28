@@ -37,7 +37,6 @@ import org.apache.flink.runtime.taskexecutor.TestingTaskExecutorGatewayBuilder;
 import org.apache.flink.testutils.TestingUtils;
 import org.apache.flink.testutils.executor.TestExecutorExtension;
 import org.apache.flink.util.FlinkException;
-import org.apache.flink.util.concurrent.FutureUtils;
 import org.apache.flink.util.concurrent.ScheduledExecutor;
 import org.apache.flink.util.concurrent.ScheduledExecutorServiceAdapter;
 import org.apache.flink.util.function.RunnableWithException;
@@ -246,7 +245,7 @@ abstract class FineGrainedSlotManagerTestBase {
                         }
                         closeFuture.complete(null);
                     });
-            FutureUtils.assertNoException(closeFuture);
+            closeFuture.get();
         }
     }
 }
