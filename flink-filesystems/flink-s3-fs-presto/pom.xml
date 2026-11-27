@@ -33,7 +33,7 @@ under the License.
 
 	<properties>
 		<!-- hadoop-aws 3.4 requires AWS SDK v2; stay on Hadoop 3.3 until the S3 filesystems are migrated (FLINK-30975) -->
-		<fs.hadoopshaded.version>3.3.4</fs.hadoopshaded.version>
+		<fs.hadoopshaded.version>3.4.0</fs.hadoopshaded.version>
 		<presto.version>0.294</presto.version>
 		<surefire.module.config> <!--
 			S5CmdOnPrestoS3FileSystemITCase uses ArraysAsListSerializer indirectly
